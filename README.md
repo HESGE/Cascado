@@ -2,9 +2,9 @@
 
 Version documentaire 1.28 · 31 octobre 2026
 
-[Code source sur GitHub](https://github.com/HESGE/Cascado)
+[Jouer à Cascado](https://hesge.github.io/Cascado/) · [Code source sur GitHub](https://github.com/HESGE/Cascado)
 
-Le dépôt contient le jeu, ses ressources, ses tests et sa documentation. Les captures de recette, archives de déploiement et paramètres locaux d’hébergement restent hors du dépôt. Le jeu est hébergé par Sites ; son adresse est communiquée séparément et reste inchangée.
+Le dépôt contient le jeu, ses ressources, ses tests et sa documentation. Les captures de recette, archives de déploiement et paramètres locaux d’hébergement restent hors du dépôt. Le jeu est accessible sur GitHub Pages à l’adresse ci-dessus. Chaque mise à jour de `main` vérifie le projet, exécute les tests et publie uniquement le contenu statique de `dist/`. Le déploiement peut aussi être relancé depuis l’onglet Actions du dépôt.
 
 PWA en français pour deux joueurs sur un smartphone, principalement en portrait 9:16. Chaque place peut être occupée par un humain ou une IA locale : humain contre humain, humain contre IA ou IA contre IA. Chaque joueur manipule sa face d’un mécanisme commun. Entre humains, le téléphone passe sous masque, puis le destinataire affiche son plateau avec un seul bouton ; les résultats suivent le même parcours. Face à une IA, le plateau de l’humain reste affiché pendant les deux tours, sans écran de passage.
 

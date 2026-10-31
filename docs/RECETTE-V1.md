@@ -593,3 +593,21 @@ Validation :
 - Capture : `output/recette/cascado-v1.33-rythme.png`. La page de mesure est temporaire et retirée du build avant publication. Ces mesures de démarrages audio sur ordinateur ne remplacent pas une écoute sur le téléphone physique.
 
 La version visible à l’accueil est **1.33**.
+
+## Évolution v1.34 — activation iPhone et test sonore explicite (31 octobre 2026)
+
+Un défaut de concurrence a été reproduit : après une nouvelle activation réussie, le rejet tardif d’un ancien `resume()` pouvait remettre l’autorisation audio à faux. Chaque succès et échec vérifie désormais la génération, le contexte et la tentative courante. Les confirmations explicites conservent leur intention si une reprise bénigne du même contexte réussit entre-temps, tout en restant annulées au masque, à la sourdine ou au remplacement du contexte.
+
+La session `playback` facultative est demandée avant la création du contexte. Une amorce d’un échantillon entièrement nul et d’un gain zéro démarre synchroniquement pendant le geste, avant toute attente ; elle est suivie et nettoyée séparément des voix du jeu. La réactivation explicite reconstruit le contexte et conserve les clips déjà décodés ; les chargements obsolètes ne peuvent pas modifier le nouveau contexte ni effacer son chargement courant. Cadence, timbre, clic propre aux deux ouvertures et sons adverses ne changent pas.
+
+L’accueil ajoute « Un problème de son ? », avec un écran « Retrouver le son » et « Activer et tester le son ». Le test active explicitement la préférence, relance un contexte neuf et joue un clic s’il peut réellement démarrer sa source. Un délai de 2,5 secondes abandonne une activation bloquée et invalide sa lecture ; retour, perte de focus et masquage annulent aussi la promesse et réarment le bouton. Le message confirme un lancement technique, sans prétendre détecter le volume, le commutateur silencieux, la route Bluetooth ou l’audibilité réelle. Aucune sauvegarde ni statistique n’est modifiée. Aucune suppression de données du site n’est proposée.
+
+Validation :
+
+- Suite complète : **623 tests, 608 réussis, zéro échec, 15 ignorés** (intégrations navigateur/IndexedDB optionnelles). Suite ciblée : **120 réussis, aucun échec ou ignoré**, comprenant 38 audio, 36 de routage, 13 de démarrage/dépannage, 15 de détection du passage, 8 de retour visuel et 10 de chutes adverses.
+- Les nouvelles régressions couvrent les anciens rejets et succès après activation récente, avec et sans masque ; l’ordre session/constructeur/amorce dans le geste ; les nettoyages ; deux confirmations concurrentes ; la reprise bénigne du même contexte ; les réponses de chargement et de décodage obsolètes ; le booléen de confirmation lié au démarrage réel de la source.
+- Les tests d’interface exécutent les fonctions et gestionnaires réels d’`app.js` avec le vrai module audio et des transports déterministes. Ils vérifient la préférence explicite, le test unique, le timeout exact, l’annulation immédiate sans partie chargée et l’absence de clic tardif, puis la possibilité de retester. Les données de partie et les frontières de révélation sont conservées.
+- Navigateur intégré, **414 × 715** : accès depuis l’accueil, deux tests successifs et message de lancement réel obtenus avec le vrai Web Audio ; aucune erreur ou alerte de console. Bouton haut de **48 px**, entre x=20,70 et x=393,30. En **320 × 568**, document large de 320 px, bouton entre x=16 et x=304, sans dépassement horizontal.
+- Capture locale : `output/recette/cascado-v1.34-test-son.png`. Les appels ont été validés sur ordinateur ; cette recette ne prouve pas qu’un haut-parleur d’iPhone physique est audible.
+
+La course corrigée est un défaut constaté du logiciel, sans preuve qu’elle soit l’unique cause du signalement sur le téléphone. Le mode silencieux et certains problèmes de reprise Web Audio/PWA sont [documentés par WebKit](https://bugs.webkit.org/show_bug.cgi?id=237322), avec des cas de [contexte actif mais silencieux](https://bugs.webkit.org/show_bug.cgi?id=291892). L’amorce muette ne contourne pas à elle seule le mode silencieux des anciens iOS. Aucun contournement par boucle média permanente n’est ajouté. La version visible à l’accueil est **1.34**.

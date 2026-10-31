@@ -117,6 +117,7 @@ function harness(game, options = {}) {
       if (settings.events.length) { settings.onSlide(); settings.onDrop(); }
     },
     persist(meta) { saves.push(meta); return Promise.resolve(); },
+    cancelSoundTest() {},
     cancelAITurn() { context.aiGeneration++; },
     landscape: () => false, renderPlay() {},
     renderAIReady(message) { failures.push(message); },

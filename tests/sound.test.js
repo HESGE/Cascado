@@ -3,30 +3,44 @@ import assert from 'node:assert/strict';
 import { createSoundPlayer, SOUND_ASSETS, SOUND_AVAILABLE } from '../src/sound.js';
 
 function deferred() {
-  let resolve;
-  const promise = new Promise(done => { resolve = done; });
-  return { promise, resolve };
+  let resolve, reject;
+  const promise = new Promise((done, fail) => { resolve = done; reject = fail; });
+  return { promise, resolve, reject };
 }
 
 // Fake Web Audio nodes retain their lifecycle so a mask can be checked for
 // lingering sources. No browser, external dependency or real audio is needed.
 function harness(options = {}) {
-  const state = { time: 0, contexts: [], sources: [], gains: [], filters: [], requests: [], resumeStates: [] };
+  const state = { time: 0, contexts: [], sources: [], gains: [], filters: [], requests: [], resumeStates: [], warmups: [], warmupGains: [], events: [], decoded: [], decoding: [] };
   class FakeAudioContext {
     constructor() {
       if (options.constructorError) throw new Error('Audio unavailable');
       this.state = 'suspended';
       this.currentTime = 1;
+      this.sampleRate = 48000;
+      this.sessionAtConstruction = options.audioSession?.type;
       this.destination = {};
+      state.events.push('construct');
       state.contexts.push(this);
     }
     async resume() {
+      state.events.push('resume');
       state.resumeStates.push(this.state);
       if (options.resumeError) throw new Error('Gesture blocked');
       if (options.resumeGate) await options.resumeGate.promise;
       this.state = 'running';
     }
+    async close() {
+      this.state = 'closed';
+      this.closed = true;
+    }
+    createBuffer(channels, length, sampleRate) {
+      if (options.primeError) throw new Error('Prime unavailable');
+      const samples = new Float32Array(length);
+      return { length, numberOfChannels: channels, sampleRate, duration: length / sampleRate, getChannelData: () => samples };
+    }
     createGain() {
+      const audioContext = this;
       const automation = [];
       const gain = {
         gain: {
@@ -36,10 +50,12 @@ function harness(options = {}) {
           linearRampToValueAtTime(value, time) { automation.push({ ramp: true, value, time }); },
         },
         connected: false,
-        connect(target) { this.connected = true; this.target = target; },
+        connect(target) {
+          this.connected = true; this.target = target;
+          (target === audioContext.destination && this.gain.value === 0 ? state.warmupGains : state.gains).push(this);
+        },
         disconnect() { this.connected = false; },
       };
-      state.gains.push(gain);
       return gain;
     }
     createBiquadFilter() {
@@ -57,16 +73,26 @@ function harness(options = {}) {
         started: false, stopped: false, connected: false, playbackRate: {value: 1},
         connect(target) { this.connected = true; this.target = target; },
         disconnect() { this.connected = false; },
-        start(...args) { this.started = true; this.startArgs = args; },
+        start(...args) {
+          const prime = this.buffer?.length === 1;
+          state.events.push(prime ? 'prime-start' : 'effect-start');
+          if (!prime && options.startError) throw new Error('Source start refused');
+          this.started = true; this.startArgs = args;
+          (prime ? state.warmups : state.sources).push(this);
+        },
         stop() { this.stopped = true; },
         finish() { this.onended?.(); },
       };
-      state.sources.push(source);
       return source;
     }
     async decodeAudioData() {
+      state.decoding.push(this);
+      const gate = options.decodeGate;
+      if (gate) await gate.promise;
       if (options.decoderError) throw new Error('Decoder unavailable');
-      return { duration: 0.3 };
+      const buffer = { duration: 0.3, decodedIn: this };
+      state.decoded.push(buffer);
+      return buffer;
     }
   }
   const player = createSoundPlayer({
@@ -77,6 +103,7 @@ function harness(options = {}) {
     AudioContext: FakeAudioContext,
     now: () => state.time,
     fetch: async url => {
+      state.events.push('fetch');
       state.requests.push(url);
       if (options.fetchGate) await options.fetchGate.promise;
       if (options.fetchError) throw new Error('Offline');
@@ -533,10 +560,10 @@ test('audio : un refus de la catégorie média laisse fonctionner Web Audio', as
 
 test('audio : activer explicitement le son joue un seul cran de confirmation', async () => {
   const { player, state } = harness({ enabled: false });
-  await player.confirmEnabled();
+  assert.equal(await player.confirmEnabled(), false);
   assert.equal(state.contexts.length, 0, 'la confirmation ne réactive pas une préférence muette');
   player.setEnabled(true);
-  await player.confirmEnabled();
+  assert.equal(await player.confirmEnabled(), true);
   assert.equal(state.sources.length, 1);
   assert.equal(state.sources[0].started, true);
   assert.equal(state.sources[0].playbackRate.value, .82);
@@ -554,7 +581,7 @@ test('audio : une confirmation en attente ne sonne jamais après masque ou sourd
       if (interruption === 'mask') player.stop();
       else player.setEnabled(false);
       gate.resolve();
-      await pending;
+      assert.equal(await pending, false);
       assert.equal(state.sources.length, 0, `${gateName}/${interruption} ne laisse pas de clic retardé`);
       assert.equal(audioSession.type, 'auto', 'la résolution tardive ne reprend pas la session média');
       player.turn(); player.drop();
@@ -567,4 +594,202 @@ test('audio : une confirmation en attente ne sonne jamais après masque ou sourd
       player.stop();
     }
   }
+});
+
+test('audio : la catégorie média et l’échantillon muet sont établis avant toute attente', async () => {
+  const resumeGate = deferred();
+  const fetchGate = deferred();
+  const audioSession = { type: 'ambient' };
+  const { player, state } = harness({ resumeGate, fetchGate, audioSession });
+  const pending = player.unlock();
+  assert.equal(state.contexts[0].sessionAtConstruction, 'playback');
+  assert.deepEqual(state.events.slice(0, 3), ['construct', 'resume', 'prime-start']);
+  assert.equal(state.warmups.length, 1);
+  const prime = state.warmups[0];
+  assert.equal(prime.started, true);
+  assert.deepEqual(prime.startArgs, [0]);
+  assert.equal(prime.buffer.length, 1);
+  assert.equal(prime.buffer.numberOfChannels, 1);
+  assert.equal(prime.buffer.sampleRate, 48000);
+  assert.equal(prime.buffer.getChannelData(0)[0], 0);
+  assert.equal(prime.target.gain.value, 0);
+  assert.equal(prime.target.target, state.contexts[0].destination);
+  assert.equal(player.ready, false);
+  assert.equal(state.sources.length, 0, 'l’amorce ne compte pas parmi les effets audibles');
+  prime.finish();
+  assert.equal(prime.connected, false);
+  assert.equal(prime.target.connected, false);
+  assert.equal(prime.onended, null);
+  resumeGate.resolve(); fetchGate.resolve();
+  await pending;
+  assert.equal(player.ready, true);
+  player.detent();
+  assert.equal(state.sources.length, 1, 'l’amorce ne consomme pas le quota ou le délai du clic');
+});
+
+test('audio : masque et sourdine arrêtent aussi l’amorce silencieuse suspendue', async () => {
+  for (const interruption of ['mask', 'mute']) {
+    const resumeGate = deferred();
+    const { player, state } = harness({ resumeGate });
+    const pending = player.unlock();
+    const prime = state.warmups[0];
+    if (interruption === 'mask') player.stop();
+    else player.setEnabled(false);
+    assert.equal(prime.stopped, true);
+    assert.equal(prime.connected, false);
+    assert.equal(prime.target.connected, false);
+    assert.equal(prime.onended, null);
+    resumeGate.resolve();
+    await pending;
+    assert.equal(player.ready, false);
+    assert.equal(state.sources.length, 0);
+  }
+});
+
+test('audio : une interruption réamorce le même contexte et nettoie l’ancienne amorce', async () => {
+  const { player, state } = harness();
+  await player.unlock();
+  state.contexts[0].state = 'interrupted';
+  await player.unlock();
+  assert.equal(state.contexts.length, 1);
+  assert.equal(state.warmups.length, 2);
+  assert.equal(state.warmups[0].stopped, true);
+  assert.equal(state.warmups[0].connected, false);
+  assert.equal(state.warmups[1].started, true);
+  assert.equal(player.ready, true);
+  player.stop();
+  assert.equal(state.warmups[1].stopped, true);
+});
+
+test('audio : refuser l’amorce de compatibilité ne supprime pas la reprise ordinaire', async () => {
+  const { player, state } = harness({ primeError: true });
+  await player.unlock();
+  assert.equal(player.ready, true);
+  player.drop();
+  assert.equal(state.sources.length, 1);
+});
+
+test('audio : un ancien resume rejeté ne rend pas muette une activation plus récente', async () => {
+  for (const maskBetween of [false, true]) {
+    const oldResume = deferred();
+    const options = { resumeGate: oldResume };
+    const { player, state } = harness(options);
+    const obsolete = player.unlock();
+    if (maskBetween) player.stop();
+    options.resumeGate = null;
+    await player.unlock();
+    assert.equal(player.ready, true);
+    player.drop();
+    assert.equal(state.sources.length, 1);
+    oldResume.reject(new Error('Old gesture rejected late'));
+    await obsolete;
+    assert.equal(player.ready, true, `le rejet obsolète ne traverse pas ${maskBetween ? 'le masque' : 'la nouvelle tentative'}`);
+    state.time = 200;
+    player.drop();
+    assert.equal(state.sources.length, 2);
+  }
+});
+
+test('audio : un ancien resume résolu ne réautorise pas une tentative plus récente refusée', async () => {
+  for (const maskBetween of [false, true]) {
+    const oldResume = deferred();
+    const options = { resumeGate: oldResume };
+    const { player, state } = harness(options);
+    const obsolete = player.unlock();
+    if (maskBetween) player.stop();
+    options.resumeGate = null;
+    options.resumeError = true;
+    await player.unlock();
+    oldResume.resolve();
+    await obsolete;
+    assert.equal(state.contexts[0].state, 'running', 'le faux navigateur termine la vieille opération');
+    assert.equal(player.ready, false, 'seule la dernière tentative peut autoriser les effets');
+    player.drop();
+    assert.equal(state.sources.length, 0);
+  }
+});
+
+test('audio : tester le son recrée même un contexte running et conserve les clips décodés', async () => {
+  const { player, state } = harness();
+  await player.unlock();
+  player.drop();
+  const previous = state.contexts[0];
+  const confirmation = player.confirmEnabled();
+  assert.equal(state.contexts.length, 2, 'la recréation a lieu dans le geste, avant les promesses');
+  assert.equal(previous.closed, true);
+  assert.equal(state.sources[0].stopped, true);
+  assert.equal(await confirmation, true);
+  assert.equal(state.sources.length, 2);
+  assert.equal(state.sources[1].context, state.contexts[1]);
+  assert.equal(state.requests.length, 3, 'les clips déjà disponibles ne sont pas rechargés');
+  assert.equal(player.ready, true);
+  assert.equal(await player.confirmEnabled(), true, 'un nouvel essai explicite peut confirmer sans ancien throttle');
+  assert.equal(state.contexts.length, 3);
+  assert.equal(state.sources.length, 3);
+});
+
+test('audio : la confirmation survit à un geste de reprise réussi sur le même contexte', async () => {
+  const oldResume = deferred();
+  const options = { resumeGate: oldResume };
+  const { player, state } = harness(options);
+  const confirmation = player.confirmEnabled();
+  options.resumeGate = null;
+  await player.unlock();
+  assert.equal(player.ready, true);
+  oldResume.resolve();
+  assert.equal(await confirmation, true);
+  assert.equal(state.sources.length, 1);
+  assert.equal(state.contexts.length, 1, 'une reprise banale ne remplace pas le contexte du clic demandé');
+});
+
+test('audio : deux tests explicites concurrents ne confirment que le dernier contexte', async () => {
+  const oldResume = deferred();
+  const options = { resumeGate: oldResume };
+  const { player, state } = harness(options);
+  const obsolete = player.confirmEnabled();
+  options.resumeGate = null;
+  assert.equal(await player.confirmEnabled(), true);
+  oldResume.reject(new Error('Obsolete context rejected'));
+  assert.equal(await obsolete, false);
+  assert.equal(player.ready, true);
+  assert.equal(state.sources.length, 1);
+  assert.equal(state.sources[0].context, state.contexts[1]);
+});
+
+test('audio : une confirmation retourne false si le clip, la reprise ou le véritable start échoue', async () => {
+  for (const options of [{ httpError: true }, { decoderError: true }, { resumeError: true }, { constructorError: true }, { startError: true }]) {
+    const { player, state } = harness(options);
+    assert.equal(await player.confirmEnabled(), false);
+    assert.equal(state.sources.length, 0);
+    if (options.startError) {
+      assert.equal(state.gains.slice(1).every(gain => !gain.connected), true, 'une voix refusée est déconnectée');
+    }
+  }
+});
+
+test('audio : un ancien décodage ne remplit pas le cache ni ne termine le chargement du nouveau contexte', async () => {
+  const oldDecode = deferred();
+  const newDecode = deferred();
+  const options = { decodeGate: oldDecode };
+  const { player, state } = harness(options);
+  const obsolete = player.unlock();
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(state.decoding.length, 3);
+  options.decodeGate = newDecode;
+  const confirmation = player.confirmEnabled();
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(state.decoding.length, 6);
+  assert.equal(state.requests.length, 6);
+  oldDecode.resolve();
+  await obsolete;
+  assert.equal(player.ready, false, 'le décodage de l’ancien contexte ne fournit aucun clip au nouveau');
+  assert.equal(state.sources.length, 0);
+  const sameContext = player.unlock();
+  assert.equal(state.requests.length, 6, 'le finally obsolète ne supprime pas le chargement courant partagé');
+  newDecode.resolve();
+  await sameContext;
+  assert.equal(await confirmation, true);
+  assert.equal(player.ready, true);
+  assert.equal(state.sources.length, 1);
+  assert.equal(state.sources[0].buffer.decodedIn, state.contexts[1], 'seuls les buffers décodés pour la génération courante sont publiés');
 });

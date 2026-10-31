@@ -31,10 +31,12 @@ export function createSoundPlayer(options = {}) {
   let loading = null;
   let unlocked = false;
   let generation = 0;
+  let unlockAttempt = 0;
   let rotationTravel = 0;
   let firstRotationMovement = true;
   const buffers = new Map();
   const active = new Set();
+  const warmups = new Set();
   const lastPlayed = new Map();
   let sessionBeforePlayback = null;
 
@@ -55,8 +57,38 @@ export function createSoundPlayer(options = {}) {
     sessionBeforePlayback = null;
   }
 
+  function clearWarmup(warmup, stopSource = false) {
+    warmups.delete(warmup);
+    warmup.source.onended = null;
+    if (stopSource) { try { warmup.source.stop(); } catch { /* Already ended. */ } }
+    try { warmup.source.disconnect(); warmup.gain.disconnect(); } catch { /* Optional audio. */ }
+  }
+
+  function primeContext(audioContext) {
+    // Start a real, all-zero sample within the gesture, before any await. It
+    // cannot become an audible delayed effect and does not consume a game voice.
+    for (const warmup of warmups) clearWarmup(warmup, true);
+    let warmup = null;
+    try {
+      const source = audioContext.createBufferSource();
+      const gain = audioContext.createGain();
+      source.buffer = audioContext.createBuffer(1, 1, audioContext.sampleRate || 44100);
+      gain.gain.value = 0;
+      source.connect(gain);
+      gain.connect(audioContext.destination);
+      warmup = { source, gain };
+      warmups.add(warmup);
+      source.onended = () => clearWarmup(warmup);
+      source.start(0);
+    } catch {
+      if (warmup) clearWarmup(warmup, true);
+      // A refused compatibility prime must not prevent ordinary resume().
+    }
+  }
+
   function stop() {
     generation++;
+    unlocked = false;
     rotationTravel = 0;
     firstRotationMovement = true;
     lastPlayed.clear();
@@ -66,63 +98,102 @@ export function createSoundPlayer(options = {}) {
       try { voice.source.disconnect(); voice.filter?.disconnect(); voice.gain.disconnect(); } catch { /* Optional audio. */ }
     }
     active.clear();
+    for (const warmup of warmups) clearWarmup(warmup, true);
     releaseSession();
   }
 
-  async function loadClips() {
+  async function loadClips(audioContext) {
     if (!fetchAudio) return;
     const missing = [...new Set(Object.values(SOUND_ASSETS))].filter(url =>
       Object.entries(SOUND_ASSETS).some(([kind, asset]) => asset === url && !buffers.has(kind)));
     await Promise.all(missing.map(async url => {
       try {
         const response = await fetchAudio(url);
-        if (!response.ok) return;
+        if (!response.ok || context !== audioContext || audioContext.state === 'closed') return;
         const data = await response.arrayBuffer();
-        const buffer = await context.decodeAudioData(data);
+        if (context !== audioContext || audioContext.state === 'closed') return;
+        const buffer = await audioContext.decodeAudioData(data);
+        if (context !== audioContext || audioContext.state === 'closed') return;
         for (const [kind, asset] of Object.entries(SOUND_ASSETS)) if (asset === url) buffers.set(kind, buffer);
       } catch { /* Missing audio, offline first visit or decoder rejection: stay silent. */ }
     }));
   }
 
-  async function unlock() {
-    if (!enabled || !AudioContextClass) return;
+  function clipsLoading(audioContext) {
+    if (buffers.size === Object.keys(SOUND_ASSETS).length) return Promise.resolve();
+    if (loading?.context === audioContext) return loading.promise;
+    const pending = { context: audioContext, promise: null };
+    pending.promise = loadClips(audioContext).finally(() => {
+      if (loading === pending) loading = null;
+    });
+    loading = pending;
+    return pending.promise;
+  }
+
+  async function activate(replaceContext = false) {
+    if (!enabled || !AudioContextClass) return false;
+    if (context && (replaceContext || context.state === 'closed')) {
+      const previous = context;
+      stop();
+      context = null;
+      loading = null;
+      try { master?.disconnect(); } catch { /* Optional audio. */ }
+      master = null;
+      try { previous.close?.()?.catch?.(() => {}); } catch { /* Already closed. */ }
+    }
+    const attempt = ++unlockAttempt;
+    const attemptGeneration = generation;
+    let audioContext = context;
+    const current = () => enabled && generation === attemptGeneration
+      && unlockAttempt === attempt && context === audioContext;
     try {
-      if (!context || context.state === 'closed') {
-        if (context) stop();
+      // Select the media route before WebKit creates the audio hardware session.
+      playbackSession();
+      const created = !context;
+      if (created) {
         context = new AudioContextClass();
+        audioContext = context;
         master = context.createGain();
         master.gain.value = 0.3;
         master.connect(context.destination);
       }
-      playbackSession();
-      // resume() must be invoked inside a real pointer/key gesture on mobile.
-      const attempt = generation;
-      const resuming = context.state !== 'running' ? context.resume() : Promise.resolve();
-      if (!loading && buffers.size < Object.keys(SOUND_ASSETS).length) {
-        loading = loadClips().finally(() => { loading = null; });
-      }
+      const needsPrime = created || audioContext.state !== 'running';
+      // Both operations execute synchronously in the caller's gesture.
+      const resuming = audioContext.state !== 'running' ? audioContext.resume() : Promise.resolve();
+      if (needsPrime) primeContext(audioContext);
+      const pendingClips = clipsLoading(audioContext);
       await resuming;
-      if (generation === attempt && enabled) unlocked = context.state === 'running';
-      await loading;
-    } catch { unlocked = false; }
+      if (!current()) return false;
+      unlocked = audioContext.state === 'running';
+      await pendingClips;
+      return current() && unlocked && audioContext.state === 'running';
+    } catch {
+      if (current()) {
+        unlocked = false;
+        for (const warmup of warmups) clearWarmup(warmup, true);
+        releaseSession();
+      }
+      return false;
+    }
   }
 
   function play(kind) {
-    if (!enabled || !unlocked || context?.state !== 'running' || !buffers.has(kind)) return;
+    if (!enabled || !unlocked || context?.state !== 'running' || !buffers.has(kind)) return false;
     const time = now();
     const settings = SETTINGS[kind];
-    if (time - (lastPlayed.get(kind) ?? -Infinity) < settings.interval) return;
+    if (time - (lastPlayed.get(kind) ?? -Infinity) < settings.interval) return false;
     // Leave a short gap after the stronger alignment click, too.
-    if (kind === 'wheel' && time - (lastPlayed.get('detent') ?? -Infinity) < SETTINGS.detent.interval) return;
+    if (kind === 'wheel' && time - (lastPlayed.get('detent') ?? -Infinity) < SETTINGS.detent.interval) return false;
     // A press may cross several gates, but sound never accumulates in a queue.
     if (active.size >= 5) {
-      if (kind !== 'detent') return;
+      if (kind !== 'detent') return false;
       // The alignment click has priority over an older motion sound.
       const voice = [...active].find(item => item.kind === 'wheel') ?? active.values().next().value;
       voice.source.onended = null;
       try { voice.source.stop(); voice.source.disconnect(); voice.filter?.disconnect(); voice.gain.disconnect(); } catch { /* Optional audio. */ }
       active.delete(voice);
     }
+    let voice = null;
     try {
       const source = context.createBufferSource();
       const gain = context.createGain();
@@ -132,7 +203,7 @@ export function createSoundPlayer(options = {}) {
       let duration = null;
       if (kind === 'wheel') {
         duration = Math.min(settings.duration, Math.max(0, source.buffer.duration - settings.offset));
-        if (!duration) return;
+        if (!duration) return false;
         const start = context.currentTime;
         // A soft friction burst has neither the attack nor the bright snap of
         // the alignment clip. All ramps belong to this immediate voice only.
@@ -150,7 +221,7 @@ export function createSoundPlayer(options = {}) {
       source.connect(filter ?? gain);
       if (filter) filter.connect(gain);
       gain.connect(master);
-      const voice = { source, filter, gain, kind };
+      voice = { source, filter, gain, kind };
       source.onended = () => {
         active.delete(voice);
         source.disconnect();
@@ -161,7 +232,15 @@ export function createSoundPlayer(options = {}) {
       if (kind === 'wheel') source.start(context.currentTime, settings.offset, duration);
       else source.start();
       lastPlayed.set(kind, time);
-    } catch { /* Sound must never interrupt a move. */ }
+      return true;
+    } catch {
+      if (voice) {
+        active.delete(voice);
+        voice.source.onended = null;
+        try { voice.source.disconnect(); voice.filter?.disconnect(); voice.gain.disconnect(); } catch { /* Optional audio. */ }
+      }
+      return false; // Sound must never interrupt a move.
+    }
   }
 
   function turn(travelDegrees = SETTINGS.wheel.travel) {
@@ -191,13 +270,17 @@ export function createSoundPlayer(options = {}) {
   return {
     get available() { return available; },
     get enabled() { return enabled; },
-    unlock,
+    get ready() { return enabled && unlocked && context?.state === 'running' && buffers.size === Object.keys(SOUND_ASSETS).length; },
+    unlock() { return activate(); },
     async confirmEnabled() {
-      const warming = unlock();
-      const attempt = generation;
+      const warming = activate(true);
+      const attemptGeneration = generation;
+      const audioContext = context;
       await warming;
       // This is confirmation of an explicit unmute, never a queued game event.
-      if (attempt === generation) play('detent');
+      // Another successful gesture may resume this same context while we wait.
+      if (generation !== attemptGeneration || context !== audioContext) return false;
+      return play('detent');
     },
     setEnabled(value) {
       enabled = available && Boolean(value);

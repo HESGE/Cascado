@@ -9,7 +9,7 @@ import { newSession, transmit, acceptReveal } from '../src/flow.js';
 import { createSeries, seriesGameId, recordSeriesResult } from '../src/series.js';
 import { OUTPUT_GATE, physicalAngleFor, GEOMETRY_VERSION, LEGACY_GEOMETRY_VERSION, SUPPORTED_GEOMETRY_VERSIONS } from '../src/geometry.js';
 import { tokenTotal, tokenSeries, tokenNumber } from '../src/tokens.js';
-import { configureStartingPosition, startingAnglesFor } from '../src/starting-position.js';
+import { configureStartingPosition, startingAnglesFor, ORIGINAL_START_MODE } from '../src/starting-position.js';
 import { isSimulationSession, createSimulationRandom, playSimulationTurn, runSimulation } from '../src/simulation.js';
 
 function session(starter = 0, levels = ['easy', 'normal'], geometryVersion = GEOMETRY_VERSION) {
@@ -62,9 +62,10 @@ test('seeded easy randomness is reproducible and exposes a restorable unsigned s
   for (const seed of [NaN, Infinity, 1.2, '1', Number.MAX_SAFE_INTEGER + 1]) assert.throws(() => createSimulationRandom(seed), TypeError);
 });
 
-for (const starter of [0, 1]) {
-  test(`headless turns exactly match the normal rules, revealed results and series counts from starter ${starter}`, () => {
+for (const startMode of ['classic', ORIGINAL_START_MODE]) for (const starter of [0, 1]) {
+  test(`${startMode} headless turns exactly match the normal rules, revealed results and series counts from starter ${starter}`, () => {
     const actual = session(starter);
+    configureStartingPosition(actual.game, { mode: startMode });
     const expected = structuredClone(actual);
     const random = createSimulationRandom(42);
     const comparisonRandom = createSimulationRandom(42);
@@ -221,6 +222,43 @@ test('classic simulation remains the default with the original neutral pose', as
   assert.deepEqual(session().game.angles, [0, 0, 0, 0, 0]);
 });
 
+test('original-v1 simulations complete real games from one fixed pose with both starters', async () => {
+  const seen = [];
+  const report = await runSimulation({ count: 2, levels: ['normal', 'normal'],
+    firstStarter: 0, seed: 42, startMode: ORIGINAL_START_MODE }, {
+    onProgress(progress) {
+      seen.push(structuredClone(progress));
+      progress.current.startingAngles[0] = -999;
+    },
+  });
+  assert.equal(report.status, 'completed');
+  assert.equal(report.completed, 2);
+  assert.equal(report.startMode, 'original-v1');
+  assert.equal(report.geometryVersion, 'ddc-v1.5');
+  assert.equal(report.positionCount, 1);
+  assert.deepEqual(report.results.map(result => result.starter), [0, 1]);
+  assert.equal(report.wins[0] + report.wins[1] + report.draws, 2);
+  for (const result of report.results) {
+    assert.deepEqual(result.startingAngles, [348, 22, 116, 8, 31]);
+    assert.equal(Object.hasOwn(result, 'pair'), false);
+    assert.ok(result.turns > 1);
+    assert.ok(['complete', 'order', 'draw'].includes(result.reason));
+  }
+  assert.ok(seen.every(progress => JSON.stringify(progress.current.startingAngles) === '[348,22,116,8,31]'));
+  report.results[0].startingAngles[0] = -1;
+  assert.deepEqual(report.results[1].startingAngles, [348, 22, 116, 8, 31]);
+});
+
+test('original-v1 simulations reject incompatible profiles before callbacks or work', async () => {
+  for (const geometryVersion of SUPPORTED_GEOMETRY_VERSIONS.filter(version => version !== 'ddc-v1.5')) {
+    let started = false;
+    await assert.rejects(runSimulation({ startMode: ORIGINAL_START_MODE, geometryVersion }, {
+      onProgress() { started = true; },
+    }), /ddc-v1\.5/);
+    assert.equal(started, false);
+  }
+});
+
 test('varied simulations reproduce seeded starting pairs and isolate progress/result arrays', async () => {
   const config = { count: 4, levels: ['easy', 'normal'], firstStarter: 1, seed: 42, startMode: 'varied' };
   const seen = [];
@@ -310,6 +348,22 @@ test('CLI varied starts report each paired position and preserve reproducibility
   assert.equal(report.positionCount, 1);
   assert.deepEqual(report.results.map(result => result.pair), [1, 1]);
   assert.deepEqual(report.results[1].startingAngles, startingAnglesFor(42, 2, GEOMETRY_VERSION));
+});
+
+test('CLI original alias and canonical original-v1 produce identical explicit pose metadata', () => {
+  const args = ['--games', '2', '--ai1', 'easy', '--ai2', 'normal', '--seed', '42', '--starts'];
+  const alias = command([...args, 'original', '--json']);
+  const canonical = command([...args, 'original-v1', '--json']);
+  assert.equal(alias.status, 0, alias.stderr);
+  assert.equal(canonical.status, 0, canonical.stderr);
+  assert.equal(alias.stdout, canonical.stdout);
+  const report = JSON.parse(alias.stdout);
+  assert.equal(report.startMode, 'original-v1');
+  assert.equal(report.positionCount, 1);
+  assert.deepEqual(report.results.map(result => result.starter), [0, 1]);
+  assert.deepEqual(report.results.map(result => result.startingAngles),
+    [[348, 22, 116, 8, 31], [348, 22, 116, 8, 31]]);
+  assert.match(command(['--help']).stdout, /reconstitué estimé/);
 });
 
 test('headless snapshots and fresh simulations preserve supported legacy geometry without upgrading it', async () => {

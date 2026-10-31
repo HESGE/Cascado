@@ -52,7 +52,7 @@ Le cadre guide les jetons. Une ouverture qui ne débouche pas sur un passage aut
 
 ## 4. Calage des deux faces et position neutre
 
-Chaque paire partage un seul angle physique θ. Au départ classique, **θ = 0° pour les cinq paires**. Les séries IA variées utilisent les poses reproductibles décrites plus bas. Les flèches de départ correspondent à la position neutre propre à la version numérique ; elles ne reproduisent pas celles d’un moule commercial.
+Chaque paire partage un seul angle physique θ. Le départ classique historique conserve **θ = 0° pour les cinq paires**. Depuis la version 1.36, les nouvelles parties ordinaires proposent plutôt **« Repères d’origine — estimés »**, référence immuable `original-v1` : **θ = [348°, 22°, 116°, 8°, 31°]**. Cette pose reconstituée d’après les flèches du modèle photographié reste approximative ; voir [les sources, orientations et réserves](DEPART-ORIGINAL.md). Les paramètres α et δ restent identiques. Les séries IA proposent aussi ce départ fixe, en plus du classique et des poses variées décrites plus bas. Les parties déjà commencées conservent leurs angles et leur configuration.
 
 | Roue | Première encoche A α | Décalage courant δ, `ddc-v1.5` | Écart court signé courant | δ conservé, `ddc-v1.4` | δ conservé, `ddc-v1.3` | Pas s |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -79,7 +79,7 @@ Les angles sont ramenés modulo 360°. Un geste horaire sur A augmente θ ; un g
 | 4 | 0°, 90°, 180°, 270° | 70°, 160°, 250°, 340° | 45°, 135°, 225°, 315° | 45°, 135°, 225°, 315° |
 | 5 | 0°, 72°, 144°, 216°, 288° | 21°, 93°, 165°, 237°, 309° | 0°, 72°, 144°, 216°, 288° | 0°, 72°, 144°, 216°, 288° |
 
-Changer d’écran ne réinitialise ni θ ni le calage. Au départ classique, les deux entrées locales sont fermées sur chacune des deux faces ; les deux séries gardent leurs cinq jetons dans leurs files, 1 en tête.
+Changer d’écran ne réinitialise ni θ ni le calage. Aux départs classique et `original-v1`, les deux entrées locales sont fermées sur chacune des deux faces ; les deux séries gardent leurs cinq jetons dans leurs files, 1 en tête.
 
 ### Portée de l’équivalence historique
 
@@ -216,7 +216,7 @@ Une zone centrale de **rayon 12 pixels CSS** suspend la mesure angulaire. En sor
 
 L’alternative clavier conserve des pas de **6° au maximum** à partir de la position actuelle, raccourcis au premier alignement exact rencontré dans le sens demandé. Ces arrêts sont l’union des angles où une encoche de cette roue ouvre exactement une porte d’entrée, de sortie ou de liaison, sur A ou B, pour toutes ses encoches. Ils dépendent uniquement de la géométrie, jamais des jetons, du joueur actif ou d’un verdict ; un arrêt peut donc correspondre à la face opposée sans révéler son état. `src/detents.js` centralise ce calcul par `mechanicalDetents` et `rotationDetentDelta`. Entrée ou Espace sélectionne la roue ; les flèches gauche/droite transmettent les crans, avec répétition après **250 ms**, puis toutes les **100 ms** environ. Aucun cran supplémentaire n’est ajouté au relâchement. Le maintien clavier vise au maximum **60° par seconde**, sans rattrapage après un retard d’affichage ni inertie.
 
-Le nombre de tours et les inversions restent libres. Qu’il provienne du doigt ou du clavier, un mouvement ne saute jamais l’examen des chevauchements intermédiaires. Aucune partie nouvelle ou sauvegardée n’est réalignée spontanément sur une grille. Les nouvelles parties classiques utilisent les angles neutres définis en section 4 et les séries variées leurs poses initiales enregistrées ; les sauvegardes gardent leurs angles exacts. L’aimantation ne modifie pas les profils ni les conditions de réception. Le seuil de passage de 20 unités, introduit avec **ddc-v1.3**, reste inchangé en **ddc-v1.4** et **ddc-v1.5**.
+Le nombre de tours et les inversions restent libres. Qu’il provienne du doigt ou du clavier, un mouvement ne saute jamais l’examen des chevauchements intermédiaires. Aucune partie nouvelle ou sauvegardée n’est réalignée spontanément sur une grille. Les parties classiques utilisent les angles neutres définis en section 4, les départs `original-v1` leur pose fixe reconstituée et les séries variées leurs poses initiales enregistrées ; les sauvegardes gardent leurs angles exacts. L’aimantation ne modifie pas les profils ni les conditions de réception. Le seuil de passage de 20 unités, introduit avec **ddc-v1.3**, reste inchangé en **ddc-v1.4** et **ddc-v1.5**.
 
 L’arrivée doit toujours présenter une encoche libre dont l’ouverture partage au moins 20 unités avec celle de la source dans le conduit. Atteindre un arrêt exact sur la roue source ne garantit donc pas une chute si la réception est fermée ou occupée. Une indication permanente rappelle cette condition. Il peut être nécessaire de préparer la roue réceptrice lors d’un tour antérieur ; l’engagement d’une seule roue par tour et l’interdiction de la roue adverse précédente restent inchangés.
 

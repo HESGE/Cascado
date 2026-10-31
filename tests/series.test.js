@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createGame } from '../src/engine.js';
 import { configurePlayers } from '../src/players.js';
-import { configureStartingPosition, startingAnglesFor } from '../src/starting-position.js';
+import { configureStartingPosition, startingAnglesFor, ORIGINAL_START_MODE } from '../src/starting-position.js';
 import { PREVIOUS_GEOMETRY_VERSION, SUPPORTED_GEOMETRY_VERSIONS } from '../src/geometry.js';
 import { tokenTotal } from '../src/tokens.js';
 import { createSeries, seriesOf, seriesGameId, parseSeriesCount,
@@ -290,6 +290,27 @@ test('varied next-round retries reproduce independent metadata and reject corrup
     const corrupted = structuredClone(game);
     change(corrupted);
     assert.equal(createNextSeriesGame(corrupted), null);
+  }
+});
+
+test('original-v1 series preserve the reconstructed pose across renewed games and alternate the starter', () => {
+  let game = configureStartingPosition(match(3, 1), { mode: ORIGINAL_START_MODE });
+  for (let round = 1; round <= 3; round++) {
+    assert.equal(game.active, 1 ^ ((round - 1) % 2));
+    assert.deepEqual(game.angles, [348, 22, 116, 8, 31]);
+    assert.deepEqual(game.startingAngles, [348, 22, 116, 8, 31]);
+    assert.deepEqual(game.startConfig, { mode: 'original-v1', seed: 1 });
+    game.angles[4] = 123;
+    assert.equal(recordSeriesResult(finished(game)), true);
+    const before = structuredClone(game);
+    const next = createNextSeriesGame(JSON.parse(JSON.stringify(game)));
+    assert.deepEqual(game, before);
+    if (round === 3) assert.equal(next, null);
+    else {
+      assert.notEqual(next.startingAngles, game.startingAngles);
+      assert.notEqual(next.startConfig, game.startConfig);
+      game = next;
+    }
   }
 });
 

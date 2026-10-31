@@ -6,7 +6,8 @@ import { GEOMETRY_VERSION, PREVIOUS_GEOMETRY_VERSION, LEGACY_GEOMETRY_VERSION,
 import { passableMouthInterval } from '../src/openings.js';
 import { tokenTotal } from '../src/tokens.js';
 import { configureStartingPosition, startingAnglesFor, normalizeStartConfig,
-  validateStartConfig, parseStartingSeed, isValidStartingPosition } from '../src/starting-position.js';
+  validateStartConfig, parseStartingSeed, isValidStartingPosition,
+  ORIGINAL_START_MODE, ORIGINAL_START_ANGLES } from '../src/starting-position.js';
 
 test('starting phases have a stable version-1 sequence, including the uint32 endpoints', () => {
   assert.deepEqual(startingAnglesFor(0, 1, LEGACY_GEOMETRY_VERSION), [93.9, 327.8, 89.4, 135.9, 300.3]);
@@ -90,6 +91,7 @@ test('seed parsing and configuration normalization preserve valid uint32 values 
   assert.deepEqual(normalizeStartConfig(), { mode: 'classic', seed: 1 });
   assert.deepEqual(normalizeStartConfig({}), { mode: 'classic', seed: 1 });
   assert.deepEqual(normalizeStartConfig({ mode: 'varied', seed: 0 }), { mode: 'varied', seed: 0 });
+  assert.deepEqual(normalizeStartConfig({ mode: ORIGINAL_START_MODE }), { mode: 'original-v1', seed: 1 });
   assert.equal(validateStartConfig({ mode: 'varied', seed: 0xffffffff }), true);
   for (const config of [null, [], 'varied', { mode: 'unknown' }, { seed: '1' },
     { mode: 'varied', seed: -1 }, { mode: 'varied', seed: 0x100000000 }, { winner: 0 }]) {
@@ -104,6 +106,68 @@ test('classic configuration keeps the ordinary neutral game and metadata unchang
   assert.equal(configureStartingPosition(game), game);
   assert.deepEqual(game, before);
   assert.equal(isValidStartingPosition(game), true);
+});
+
+test('the original-v1 reconstruction sets only the five fixed phases and keeps all four queues closed', () => {
+  assert.equal(ORIGINAL_START_MODE, 'original-v1');
+  assert.equal(Object.isFrozen(ORIGINAL_START_ANGLES), true);
+  assert.deepEqual(ORIGINAL_START_ANGLES, [348, 22, 116, 8, 31]);
+  const game = createGame(['A', 'B'], 1);
+  const before = structuredClone(game);
+  assert.equal(configureStartingPosition(game, { mode: ORIGINAL_START_MODE }), game);
+  assert.deepEqual(game, { ...before, angles: [348, 22, 116, 8, 31],
+    startConfig: { mode: 'original-v1', seed: 1 }, startingAngles: [348, 22, 116, 8, 31] });
+  assert.notEqual(game.angles, game.startingAngles);
+  assert.notEqual(game.angles, ORIGINAL_START_ANGLES);
+  assert.notEqual(game.startingAngles, ORIGINAL_START_ANGLES);
+  for (const face of [0, 1]) for (const gate of inputGates(game.geometryVersion)) {
+    assert.equal(passableMouthInterval(1, notchAngle(face, 1, 0, game.angles[0], game.geometryVersion), gate), null);
+  }
+  // A real movement elsewhere can stabilize gravity without prematurely loading a queue.
+  rotate(game, 2, .001);
+  assert.deepEqual(game.faces, before.faces);
+  assert.deepEqual(game.events, []);
+  assert.equal(isValidStartingPosition(game), true);
+  assert.deepEqual(game.startingAngles, [348, 22, 116, 8, 31]);
+});
+
+test('original-v1 calibration is independent of seed and round, but rejects historical mechanisms before mutation', () => {
+  for (const [seed, round] of [[0, 1], [42, 2], [0xffffffff, 1000]]) {
+    const game = configureStartingPosition(createGame(), { mode: ORIGINAL_START_MODE, seed }, round);
+    assert.deepEqual(game.angles, [348, 22, 116, 8, 31]);
+    assert.equal(isValidStartingPosition(game, round), true);
+  }
+  for (const version of [PREVIOUS_GEOMETRY_VERSION, LEGACY_GEOMETRY_VERSION]) {
+    const game = createGame(['A', 'B'], 0, version);
+    const before = structuredClone(game);
+    assert.throws(() => configureStartingPosition(game, { mode: ORIGINAL_START_MODE }), /ddc-v1\.5/);
+    assert.deepEqual(game, before);
+    game.startConfig = { mode: ORIGINAL_START_MODE, seed: 1 };
+    game.startingAngles = [...ORIGINAL_START_ANGLES];
+    assert.equal(isValidStartingPosition(game), false);
+  }
+});
+
+test('original-v1 saves retain their exact live angles and immutable provenance without being reconfigured', () => {
+  const original = configureStartingPosition(createGame(), { mode: ORIGINAL_START_MODE });
+  rotate(original, 3, 17);
+  const saved = JSON.parse(JSON.stringify(original));
+  const before = structuredClone(saved);
+  assert.equal(isValidStartingPosition(saved), true);
+  assert.deepEqual(saved, before);
+  assert.throws(() => configureStartingPosition(saved, { mode: ORIGINAL_START_MODE }), TypeError);
+  assert.deepEqual(saved, before);
+  for (const change of [
+    value => { value.startingAngles[0] += 1; },
+    value => { delete value.startingAngles; },
+    value => { value.startingAngles = Array(5); },
+    value => { delete value.startConfig; },
+    value => { value.startConfig.mode = 'original-v2'; },
+  ]) {
+    const corrupt = structuredClone(saved);
+    change(corrupt);
+    assert.equal(isValidStartingPosition(corrupt), false);
+  }
 });
 
 test('varied configuration changes only initial phases and their immutable provenance', () => {
@@ -163,11 +227,11 @@ test('configuration refuses an existing position without altering any field', ()
     game => { game.startingAngles = [0, 0, 0, 0, 0]; },
     game => { game.faces[0].slots[0] = Array(1); },
   ];
-  for (const mutate of mutations) {
+  for (const mutate of mutations) for (const mode of ['varied', ORIGINAL_START_MODE]) {
     const game = createGame();
     mutate(game);
     const before = structuredClone(game);
-    assert.throws(() => configureStartingPosition(game, { mode: 'varied', seed: 1 }), TypeError);
+    assert.throws(() => configureStartingPosition(game, { mode, seed: 1 }), TypeError);
     assert.deepEqual(game, before);
   }
 });

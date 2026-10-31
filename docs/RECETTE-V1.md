@@ -627,3 +627,23 @@ Validation :
 - `npm run check`, `npm run build` et le contrôle des espaces du diff réussissent. Le cache hors ligne inclut les trois nouveaux sons, leur licence et le module de choix du résultat.
 
 La version visible à l’accueil est **1.35**.
+
+
+## Évolution v1.36 — départ aux repères d’origine reconstitués (31 octobre 2026)
+
+La notice MB 1994 demande d’aligner les flèches des roues avec celles du cadre avant une partie. Les photos du même exemplaire annoncé MB 1977 permettent une reconstitution conditionnelle de cette pose, avec une réserve de lecture de 10 à 14°. La pose filmée en 1985 utilisée pour estimer les décalages n’est pas un départ aux flèches attesté. Les références et cette distinction sont détaillées dans [DEPART-ORIGINAL.md](DEPART-ORIGINAL.md).
+
+Le mode immuable `original-v1`, réservé à `ddc-v1.5`, initialise les angles physiques à **[348°, 22°, 116°, 8°, 31°]** et conserve le calage [75°, 90°, 90°, 20°, 15°]. Les nouvelles parties ordinaires proposent « Repères d’origine — estimés » ; « Ancien départ Cascado » garde les cinq zéros. Une revanche conserve son mode, y compris une ancienne partie sans configuration explicite, qui reste classique. L’ouverture de la préparation ne remplace aucune sauvegarde. Le démarrage seul applique les angles ; une reprise ne les recalcule pas. Les quatre entrées de la roue 1 restent fermées et tous les jetons sont encore dans leurs files.
+
+Le duel automatique ajoute les repères estimés à ses choix, sans changer son défaut Variés ni ses préférences antérieures. Une série répète la pose originale fixe avec premier joueur alterné ; le bilan distingue explicitement ce protocole. La commande accepte `--starts original` et `--starts original-v1` ; son défaut reste classique. Les départs classiques et variés historiques conservent exactement leurs valeurs et leurs métadonnées.
+
+Validation :
+
+- Suite complète : **697 tests, 682 réussis, zéro échec, 15 ignorés** (intégrations navigateur/IndexedDB optionnelles). Les contrôles ciblés des départs, séries, simulations et client comptent **79 réussites** ; **16 tests d’application supplémentaires** exécutent la vraie préparation et sa soumission, avec les vraies fonctions mécaniques.
+- Les tests vérifient la pose immuable, les quatre entrées fermées, les files intactes, les refus sans mutation, la compatibilité réservée à `ddc-v1.5`, la validation des métadonnées, le changement du premier joueur et la conservation des positions courantes lors d’une reprise. Deux trajectoires Normal/Normal sont comparées tour par tour au vrai moteur et aux frontières de révélation, sans verdict simulé artificiellement.
+- Navigateur intégré, **414 × 715** : le départ proposé est celui des repères estimés. Sur A, les rotors affichent **[33°, 52°, 161°, 8°, 31°]**, tous vides ; après rechargement et révélation, ces cinq angles sont identiques. Sur B, avec le second joueur comme premier, les rotors affichent **[72°, 38°, 289°, 152°, 134°]**, sans jeton chargé. La largeur du document est de 414 pixels sans dépassement horizontal.
+- Série réelle dans le navigateur, Sans plateau, Normal/Normal, repères estimés : **2/2 parties terminées, B gagne les deux, moyenne 97,5 tours**, et le bilan indique « Repères d’origine estimés · même position répétée. » En **320 × 568**, le sélecteur occupe x=16 à x=304, soit 288 pixels ; document large de 320 pixels, sans dépassement. Aucune erreur ou alerte de console constatée.
+- Commande réelle Difficile/Difficile avec le nouveau départ : **B gagne les deux parties**, en **112 puis 99 tours**, premier joueur inversé, sorties complètes et aucune partie inachevée. Ce contrôle confirme le fonctionnement, sans constituer une étude statistique et sans prétendre corriger l’avantage de B.
+- Captures locales : `output/recette/cascado-v1.36-depart-A.png` et `output/recette/cascado-v1.36-depart-B.png`. Les parties de contrôle utilisent une origine locale isolée et n’affectent pas les sauvegardes du jeu public. Aucun essai sur iPhone physique n’est revendiqué.
+
+Le nouveau départ est une approximation photographique explicitement nommée ; il ne certifie pas le départ exact d’une édition commerciale ni un équilibre 50/50. La version visible à l’accueil est **1.36**.

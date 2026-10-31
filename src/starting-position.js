@@ -11,6 +11,11 @@ const MAX_SEED = 0xffffffff;
 const MAX_ROUND = 1000;
 const PHASE_STEPS = 3600;
 const ENTRY_ATTEMPTS = 32;
+// Immutable reconstruction calibration: this named pose belongs specifically
+// to the photographic 1.5 mechanism, not to whichever profile becomes current.
+export const ORIGINAL_START_MODE = 'original-v1';
+export const ORIGINAL_START_ANGLES = Object.freeze([348, 22, 116, 8, 31]);
+const ORIGINAL_START_GEOMETRY = 'ddc-v1.5';
 const validSeed = value => Number.isInteger(value) && value >= 0 && value <= MAX_SEED;
 const validRound = value => Number.isInteger(value) && value >= 1 && value <= MAX_ROUND;
 
@@ -26,7 +31,7 @@ export function normalizeStartConfig(config) {
   if (!config || typeof config !== 'object' || Array.isArray(config)
       || Object.keys(config).some(key => !['mode', 'seed'].includes(key))) return null;
   const { mode = 'classic', seed = 1 } = config;
-  return ['classic', 'varied'].includes(mode) && validSeed(seed) ? { mode, seed } : null;
+  return ['classic', 'varied', ORIGINAL_START_MODE].includes(mode) && validSeed(seed) ? { mode, seed } : null;
 }
 
 export function validateStartConfig(config) {
@@ -90,8 +95,12 @@ export function configureStartingPosition(game, config = {}, round = 1) {
   const normalized = normalizeStartConfig(config);
   if (!normalized || !validRound(round)) throw new TypeError('Configuration de départ invalide.');
   if (!freshGame(game)) throw new TypeError('Les phases initiales exigent une partie neuve et neutre.');
+  if (normalized.mode === ORIGINAL_START_MODE && game.geometryVersion !== ORIGINAL_START_GEOMETRY) {
+    throw new TypeError('Le départ original-v1 exige le profil ddc-v1.5.');
+  }
   if (normalized.mode === 'classic') return game;
-  const angles = startingAnglesFor(normalized.seed, round, game.geometryVersion);
+  const angles = normalized.mode === ORIGINAL_START_MODE ? ORIGINAL_START_ANGLES
+    : startingAnglesFor(normalized.seed, round, game.geometryVersion);
   game.startConfig = normalized;
   game.startingAngles = [...angles];
   game.angles = [...angles];
@@ -103,8 +112,10 @@ export function isValidStartingPosition(game, round = game?.series?.round ?? 1) 
   if (!game || !validRound(round) || !SUPPORTED_GEOMETRY_VERSIONS.includes(game.geometryVersion)) return false;
   if (game.startConfig === undefined) return game.startingAngles === undefined;
   const config = normalizeStartConfig(game.startConfig);
-  if (!config || config.mode !== 'varied' || !Array.isArray(game.startingAngles)
+  if (!config || !['varied', ORIGINAL_START_MODE].includes(config.mode) || !Array.isArray(game.startingAngles)
       || game.startingAngles.length !== WHEELS.length) return false;
-  const expected = startingAnglesFor(config.seed, round, game.geometryVersion);
+  if (config.mode === ORIGINAL_START_MODE && game.geometryVersion !== ORIGINAL_START_GEOMETRY) return false;
+  const expected = config.mode === ORIGINAL_START_MODE ? ORIGINAL_START_ANGLES
+    : startingAnglesFor(config.seed, round, game.geometryVersion);
   return Array.from(game.startingAngles).every((angle, index) => angle === expected[index]);
 }

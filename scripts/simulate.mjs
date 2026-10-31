@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { runSimulation } from '../src/simulation.js';
+import { ORIGINAL_START_MODE } from '../src/starting-position.js';
 
 const usage = `Cascado — confrontations sans interface graphique
 
@@ -9,7 +10,7 @@ Usage : npm run simulate -- --games 10 --ai1 normal --ai2 hard --seed 42
   --ai1 NIVEAU    easy, normal ou hard (normal par défaut)
   --ai2 NIVEAU    easy, normal ou hard (normal par défaut)
   --seed ENTIER   Graine reproductible des départs et des IA faciles (1 par défaut)
-  --starts MODE   classic ou varied : poses complémentaires par paire, premiers joueurs inversés (classic par défaut)
+  --starts MODE   classic : ancien neutre à zéro ; varied : même pose par paire ; original : départ reconstitué estimé (classic par défaut)
   --max-turns N   Limite par partie, sans fabriquer d'égalité (10 000 par défaut)
   --json          Résultats structurés, une ligne JSON
   --help          Afficher cette aide
@@ -40,7 +41,7 @@ try {
     const value = args[++index];
     if (value === undefined || value.startsWith('--')) throw new TypeError(`Valeur manquante pour ${flag}.`);
     if (flag === '--ai1' || flag === '--ai2') options.levels[flag === '--ai1' ? 0 : 1] = value;
-    else if (flag === '--starts') options.startMode = value;
+    else if (flag === '--starts') options.startMode = value === 'original' ? ORIGINAL_START_MODE : value;
     else options[{ '--games': 'count', '--seed': 'seed', '--max-turns': 'maxTurns' }[flag]] = integer(value, flag);
   }
   let stopped = false;
@@ -51,7 +52,7 @@ try {
   if (json) console.log(JSON.stringify(result));
   else {
     console.log(`${result.completed} / ${result.requested} parties terminées — graine ${result.seed}`);
-    console.log(`Départs : ${result.startMode === 'varied' ? 'variés par paires' : 'classiques'} — ${result.positionCount} position(s) distincte(s)`);
+    console.log(`Départs : ${result.startMode === 'varied' ? 'variés par paires' : result.startMode === ORIGINAL_START_MODE ? 'original reconstitué (original-v1)' : 'classiques'} — ${result.positionCount} position(s) distincte(s)`);
     console.log(`IA 1 (${result.levels[0]}) : ${result.wins[0]} victoire(s)`);
     console.log(`IA 2 (${result.levels[1]}) : ${result.wins[1]} victoire(s)`);
     console.log(`Égalités : ${result.draws} — moyenne : ${result.averageTurns.toFixed(1)} tours par partie`);

@@ -5,7 +5,7 @@ import { configurePlayers, isAIPlayer, playerSettings } from './players.js';
 import { newSession, acceptReveal, transmit } from './flow.js';
 import { GEOMETRY_VERSION, SUPPORTED_GEOMETRY_VERSIONS, WHEELS } from './geometry.js';
 import { tokenTotal } from './tokens.js';
-import { configureStartingPosition, isValidStartingPosition } from './starting-position.js';
+import { configureStartingPosition, isValidStartingPosition, ORIGINAL_START_MODE } from './starting-position.js';
 import { createSeries, parseSeriesCount, seriesGameId, seriesOf,
   recordSeriesResult, createNextSeriesGame } from './series.js';
 
@@ -101,8 +101,13 @@ function settings({ count = 10, levels = ['normal', 'normal'], firstStarter = 0,
     throw new TypeError('Chaque IA doit être easy, normal ou hard.');
   }
   if (![0, 1].includes(firstStarter)) throw new TypeError('Le premier joueur doit être 0 ou 1.');
-  if (!['classic', 'varied'].includes(startMode)) throw new TypeError('Les départs doivent être classic ou varied.');
+  if (!['classic', 'varied', ORIGINAL_START_MODE].includes(startMode)) {
+    throw new TypeError('Les départs doivent être classic, varied ou original-v1.');
+  }
   if (!SUPPORTED_GEOMETRY_VERSIONS.includes(geometryVersion)) throw new TypeError('Version de géométrie incompatible.');
+  if (startMode === ORIGINAL_START_MODE && geometryVersion !== 'ddc-v1.5') {
+    throw new TypeError('Le départ original-v1 exige le profil ddc-v1.5.');
+  }
   if (!Number.isSafeInteger(seed)) throw new TypeError('La graine doit être un entier sûr.');
   if (!Number.isSafeInteger(maxTurns) || maxTurns < 1) throw new TypeError('La limite de tours doit être un entier positif.');
   return { count: target, levels: [...levels], firstStarter, seed: seed >>> 0, maxTurns, startMode, geometryVersion };
@@ -133,7 +138,7 @@ export async function runSimulation(options = {}, hooks = {}) {
   let turnsSinceYield = 0;
   const startMetadata = () => config.startMode === 'varied' ? {
     startingAngles: [...game.startingAngles], pair: Math.ceil(game.series.round / 2),
-  } : {};
+  } : config.startMode === ORIGINAL_START_MODE ? { startingAngles: [...game.startingAngles] } : {};
   const summary = (status, unfinished = null) => {
     const series = seriesOf(game);
     return {

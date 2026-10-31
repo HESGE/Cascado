@@ -62,6 +62,7 @@ function harness(game, options = {}) {
   const sounds = [];
   const animations = [];
   const saves = [];
+  const waits = [];
   const failures = [];
   let turnsFinished = 0;
   const board = { innerHTML: '' };
@@ -86,8 +87,8 @@ function harness(game, options = {}) {
     releasePointerCapture(id) { captures.delete(id); },
   };
   const document = { hidden: false, addEventListener(name, callback) { documentListeners.set(name, callback); } };
-  const sound = Object.fromEntries(['turn', 'detent', 'slide', 'drop', 'unlock', 'stop'].map(name =>
-    [name, () => sounds.push({ name, time: now })]));
+  const sound = Object.fromEntries(['turn', 'detent', 'slide', 'drop', 'unlock', 'stop', 'resetTurn'].map(name =>
+    [name, (...args) => sounds.push({ name, time: now, args })]));
   const context = vm.createContext({
     app, document, sound, session: { game }, mode: options.mode ?? 'play', selected: null,
     surfacePress: null, contacts: new Set(), HOLD_DELAY: 250, REPEAT_INTERVAL: 100,
@@ -120,13 +121,16 @@ function harness(game, options = {}) {
     landscape: () => false, renderPlay() {},
     renderAIReady(message) { failures.push(message); },
     ai: { choose: async () => options.move ?? { wheel: 1, localDelta: 50 } },
-    waitForAI: async () => true,
+    waitForAI: async (duration, generation, motionPause = false) => {
+      waits.push({ duration, motionPause, sounds: sounds.map(item => item.name) });
+      return true;
+    },
     waitAIFrame: async elapsed => { now += Math.max(16, elapsed); return true; },
     saveAIMovement: async () => {},
     finishTurn: async () => { turnsFinished++; context.mode = 'transition'; },
   });
   vm.runInContext(routing, context, { filename: 'app-audio-routing.js' });
-  const api = vm.runInContext('({applyRotations, applyRotation, flushWheelGesture, finishSurfacePress, stopMotion, runAITurn})', context);
+  const api = vm.runInContext('({applyRotations, applyRotation, flushWheelGesture, finishSurfacePress, beginSurfaceRotation, stopMotion, runAITurn})', context);
   const point = (wheel, degrees) => {
     const center = wheelCenter(wheel, game.active);
     const radians = degrees * Math.PI / 180;
@@ -137,8 +141,9 @@ function harness(game, options = {}) {
     ...point(wheel, degrees), pointerId: 7, button: 0, isPrimary: true, isTrusted: false,
     target: { closest: () => null }, preventDefault() {}, ...extras,
   });
-  return { game, context, api, sounds, animations, saves, failures, frames,
+  return { game, context, api, sounds, animations, saves, waits, failures, frames,
     count: name => sounds.filter(item => item.name === name).length,
+    arguments: name => sounds.filter(item => item.name === name).map(item => item.args),
     down(wheel = 1, degrees = 0) { appListeners.get('pointerdown')(event(wheel, degrees)); },
     move(wheel, degrees, coalesced) {
       appListeners.get('pointermove')(event(wheel, degrees, coalesced ? {
@@ -152,6 +157,16 @@ function harness(game, options = {}) {
     },
     finished: () => turnsFinished,
   };
+}
+
+function assertRotationPhaseBoundaries(h) {
+  const names = h.sounds.map(item => item.name);
+  const firstTurn = names.indexOf('turn');
+  const lastTurn = names.lastIndexOf('turn');
+  assert.ok(firstTurn >= 0, 'the action rotated a wheel');
+  assert.ok(names.slice(0, firstTurn).includes('resetTurn'), 'a fresh action starts a fresh angular sound phase');
+  assert.ok(names.slice(lastTurn + 1).includes('resetTurn'), 'releasing the action discards its residual angular phase');
+  assert.equal(h.count('stop'), 0, 'phase resets preserve already playing fall and slide voices');
 }
 
 for (const face of [0, 1]) {
@@ -173,6 +188,42 @@ for (const face of [0, 1]) {
     h.down(); h.move(1, 50); h.frame(); h.up();
     assert.equal(h.count('detent'), 0, 'aligning one mouth alone never produces a passage click');
     assert.equal(h.count('turn'), 1);
+    const [[distance]] = h.arguments('turn');
+    assert.ok(Math.abs(distance - 50) < 1e-8, 'both faces report positive angular travel to the sound player');
+  });
+
+  test(`app face ${face}: rotation sound follows actual magnetic movement rather than raw finger degrees`, () => {
+    const h = harness(passageGame(face, false));
+    const before = getView(h.game, face).angles[0];
+    h.down(); h.move(1, 23); h.frame(); h.up(1, 23);
+    const appliedDistance = angularDistance(getView(h.game, face).angles[0], before);
+    assert.ok(Math.abs(appliedDistance - 23) > .1, 'the chosen gesture receives a measurable magnetic correction');
+    assert.equal(h.count('turn'), 1);
+    const [[distance]] = h.arguments('turn');
+    assert.ok(Math.abs(distance - appliedDistance) < 1e-8,
+      'the sound receives the same positive distance as the displayed wheel');
+    assert.equal(h.count('detent'), 0);
+  });
+
+  test(`app face ${face}: a coalesced round trip reports its complete travel even with no net rotation`, () => {
+    const h = harness(passageGame(face, false));
+    const before = getView(h.game, face).angles[0];
+    h.down(); h.move(1, 0, [25, 50, 25, 0]); h.frame(); h.up(1, 0);
+    assert.ok(angularDistance(getView(h.game, face).angles[0], before) < 1e-8);
+    assert.equal(h.count('turn'), 1, 'coalesced motion is sent once without replaying its individual samples');
+    const [[distance]] = h.arguments('turn');
+    assert.ok(Math.abs(distance - 100) < 1e-8,
+      '50 degrees out and 50 degrees back must not collapse to the zero net delta');
+    assert.equal(h.count('detent'), 0);
+  });
+
+  test(`app face ${face}: a pointer rotation starts and releases a fresh soft-sound phase`, () => {
+    const h = harness(passageGame(face, false));
+    h.down(); h.move(1, 10); h.frame(); h.up(1, 10);
+    assertRotationPhaseBoundaries(h);
+    const before = h.count('resetTurn');
+    h.down(1, 10);
+    assert.ok(h.count('resetTurn') > before, 'a new pointer contact cannot inherit the previous travel remainder');
   });
 
   test(`app face ${face}: a narrow visible overlap stays soft until the common passage admits a token`, () => {
@@ -248,12 +299,51 @@ test('app: rejected engine movement cannot advance a tracker or create an audio 
   assert.equal(h.count('turn'), 0);
 });
 
-test('app: keyboard rotation retains its soft sound without treating a mechanical stop as two open mouths', () => {
-  const h = harness(passageGame(0, false, -4));
-  h.context.selected = 1;
-  assert.equal(h.api.applyRotation(ROTATION_STEP), true);
-  assert.equal(h.count('turn'), 1);
+test('app: an immobile touch and zero or invalid deltas cannot produce rotation audio', () => {
+  const h = harness(passageGame(0));
+  const before = [...h.game.angles];
+  h.down(); h.move(1, 0); h.frame(); h.up(1, 0);
+  assert.equal(h.api.applyRotations([0, NaN, Infinity], true), false);
+  assert.deepEqual(h.game.angles, before);
+  assert.equal(h.count('turn'), 0);
   assert.equal(h.count('detent'), 0);
+});
+
+test('app: raw movement held on a magnetic plateau is silent when the wheel does not move', () => {
+  const game = passageGame(0, false, 0);
+  const h = harness(game);
+  h.context.selected = 1;
+  const before = [...game.angles];
+  const magnet = createMagneticDrag(1, game.angles[0], game.geometryVersion, 0);
+  const tracker = createPassageFeedbackTracker(getView(game, 0), 1);
+  assert.equal(h.api.applyRotations([.1], true, magnet, tracker), false);
+  assert.deepEqual(game.angles, before);
+  assert.equal(h.count('turn'), 0);
+  assert.equal(h.count('detent'), 0);
+});
+
+for (const face of [0, 1]) {
+  for (const direction of [-1, 1]) {
+    test(`app keyboard face ${face}, direction ${direction}: sound receives the actual positive step of at most six degrees`, () => {
+      const h = harness(passageGame(face, false, -4));
+      h.context.selected = 1;
+      const before = getView(h.game, face).angles[0];
+      assert.equal(h.api.applyRotation(direction * ROTATION_STEP), true);
+      assert.equal(h.count('turn'), 1);
+      const [[distance]] = h.arguments('turn');
+      assert.ok(Number.isFinite(distance) && distance > 0 && distance <= ROTATION_STEP + 1e-8);
+      assert.ok(Math.abs(distance - angularDistance(getView(h.game, face).angles[0], before)) < 1e-8);
+      assert.equal(h.count('detent'), 0, 'a mechanical keyboard stop alone is not a two-mouth passage');
+    });
+  }
+}
+
+test('app keyboard: a fresh key action and key release reset only the rotation phase', () => {
+  const h = harness(passageGame(0, false));
+  h.context.selected = 1;
+  h.api.beginSurfaceRotation(1, 'key:ArrowRight');
+  h.api.finishSurfacePress('key:ArrowRight', true);
+  assertRotationPhaseBoundaries(h);
 });
 
 test('app: visible token motion keeps its separate slide and fall callbacks alongside the passage click', () => {
@@ -276,7 +366,14 @@ for (const face of [0, 1]) {
     assert.deepEqual(h.failures, []);
     assert.equal(h.finished(), 1);
     assert.ok(h.count('turn') > 0);
+    const distances = h.arguments('turn').map(([distance]) => distance);
+    assert.ok(distances.every(distance => Number.isFinite(distance) && distance > 0));
+    assert.ok(Math.abs(distances.reduce((sum, distance) => sum + distance, 0) - 50) < 1e-8,
+      'the progressively rotated AI wheel reports all of its actual angular travel');
     assert.equal(h.count('detent'), 0);
+    const names = h.sounds.map(item => item.name);
+    assert.ok(names.slice(0, names.indexOf('turn')).includes('resetTurn'), 'the AI starts a new rotation sound phase');
+    assert.equal(h.count('stop'), 0);
   });
 
   test(`app mixed AI face ${face}: the displayed human face determines which falls remain anonymous`, async () => {
@@ -294,11 +391,31 @@ for (const face of [0, 1]) {
     assert.deepEqual(game.faces[face].exited, [1]);
     assert.equal(h.count('drop'), 1, 'an AI collection remains audible from the fixed human view');
     assert.ok(h.count('turn') > 0);
+    const distances = h.arguments('turn').map(([distance]) => distance);
+    assert.ok(distances.every(distance => Number.isFinite(distance) && distance > 0));
+    assert.ok(Math.abs(distances.reduce((sum, distance) => sum + distance, 0) - 50) < 1e-8,
+      'a negative AI move still reports positive distance from either physical face');
     assert.equal(h.count('detent'), 0);
     assert.ok(h.animations.every(animation => animation.after.faceIndex === human && animation.events.length === 0),
       'only the human face is animated, without any AI transfer details');
   });
 }
+
+test('app AI: a visible fall pause discards rotation travel without stopping fall voices', async () => {
+  const game = passageGame(0);
+  game.players.forEach(player => { player.controller = 'ai'; });
+  game.faces[0].slots[0][0] = 1;
+  const h = harness(game, { mode: 'ai-play' });
+  await h.api.runAITurn();
+  assert.deepEqual(h.failures, []);
+  assert.equal(h.finished(), 1);
+  assert.ok(h.count('drop') > 0);
+  const fallPauses = h.waits.filter(wait => wait.motionPause && wait.duration === 300);
+  assert.ok(fallPauses.length > 0, 'the visible transfer creates a presentation pause');
+  for (const pause of fallPauses) assert.equal(pause.sounds.at(-1), 'resetTurn',
+    'the movement remainder is cleared before waiting for the fall');
+  assert.equal(h.count('stop'), 0, 'the fall audio is allowed to finish during the rotation pause');
+});
 
 test('app AI Full: wheel and opponent fall routing stay silent', async () => {
   const game = emptyGame(0);

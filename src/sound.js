@@ -13,7 +13,7 @@ export const SOUND_ASSETS = Object.freeze({
 
 const SETTINGS = {
   // Use only the textured tail of the slide recording, away from its impact.
-  wheel: { interval: 150, gain: 0.6, offset: 0.11, duration: 0.11, cutoff: 1600, attack: 0.012, release: 0.028 },
+  wheel: { interval: 90, travel: 12, gain: 0.6, offset: 0.11, duration: 0.11, cutoff: 1600, attack: 0.012, release: 0.028 },
   detent: { interval: 140, gain: 1, rate: 0.82 },
   slide: { interval: 80, gain: 0.55 },
   drop: { interval: 80, gain: 0.85 },
@@ -31,6 +31,8 @@ export function createSoundPlayer(options = {}) {
   let loading = null;
   let unlocked = false;
   let generation = 0;
+  let rotationTravel = 0;
+  let firstRotationMovement = true;
   const buffers = new Map();
   const active = new Set();
   const lastPlayed = new Map();
@@ -55,6 +57,8 @@ export function createSoundPlayer(options = {}) {
 
   function stop() {
     generation++;
+    rotationTravel = 0;
+    firstRotationMovement = true;
     lastPlayed.clear();
     for (const voice of active) {
       voice.source.onended = null;
@@ -109,7 +113,7 @@ export function createSoundPlayer(options = {}) {
     const settings = SETTINGS[kind];
     if (time - (lastPlayed.get(kind) ?? -Infinity) < settings.interval) return;
     // Leave a short gap after the stronger alignment click, too.
-    if (kind === 'wheel' && time - (lastPlayed.get('detent') ?? -Infinity) < SETTINGS.wheel.interval) return;
+    if (kind === 'wheel' && time - (lastPlayed.get('detent') ?? -Infinity) < SETTINGS.detent.interval) return;
     // A press may cross several gates, but sound never accumulates in a queue.
     if (active.size >= 5) {
       if (kind !== 'detent') return;
@@ -160,6 +164,30 @@ export function createSoundPlayer(options = {}) {
     } catch { /* Sound must never interrupt a move. */ }
   }
 
+  function turn(travelDegrees = SETTINGS.wheel.travel) {
+    if (!Number.isFinite(travelDegrees) || travelDegrees === 0) return;
+    if (!enabled || !unlocked || context?.state !== 'running' || !buffers.has('wheel')) {
+      rotationTravel = 0;
+      firstRotationMovement = true;
+      return;
+    }
+    const time = now();
+    if (time - (lastPlayed.get('detent') ?? -Infinity) < SETTINGS.detent.interval) {
+      rotationTravel = 0;
+      return;
+    }
+    // The first actual movement confirms a new gesture, including a short step.
+    // Following bursts require twelve degrees of travel in either direction.
+    // Saturation prevents fast/coalesced motion from creating a sound backlog.
+    rotationTravel = firstRotationMovement ? SETTINGS.wheel.travel
+      : Math.min(SETTINGS.wheel.travel, rotationTravel + Math.abs(travelDegrees));
+    firstRotationMovement = false;
+    if (rotationTravel + 1e-9 < SETTINGS.wheel.travel
+      || time - (lastPlayed.get('wheel') ?? -Infinity) < SETTINGS.wheel.interval) return;
+    rotationTravel = 0;
+    play('wheel');
+  }
+
   return {
     get available() { return available; },
     get enabled() { return enabled; },
@@ -175,8 +203,9 @@ export function createSoundPlayer(options = {}) {
       enabled = available && Boolean(value);
       if (!enabled) { unlocked = false; stop(); }
     },
-    turn() { play('wheel'); },
-    detent() { play('detent'); },
+    turn,
+    resetTurn() { rotationTravel = 0; firstRotationMovement = true; },
+    detent() { rotationTravel = 0; play('detent'); },
     slide() { play('slide'); },
     drop() { play('drop'); },
     stop() { unlocked = false; stop(); },

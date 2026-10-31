@@ -134,20 +134,155 @@ test('audio : les crans rapides sont limités sans supprimer glissement et conta
   assert.equal(state.gains.slice(1).every(gain => !gain.connected), true);
 });
 
-test('audio : la rotation espace ses frottements de 150 ms et laisse respirer le clic d’alignement', async () => {
+test('audio : la rotation plafonne ses frottements à 90 ms et laisse respirer le clic d’alignement', async () => {
   const { player, state } = harness();
   await player.unlock();
   player.turn();
-  state.time = 149; player.turn();
+  state.time = 89; player.turn();
   assert.equal(state.sources.length, 1, 'pas de crépitement entre deux frottements de rotation');
-  state.time = 150; player.turn();
+  state.time = 90; player.turn();
   assert.equal(state.sources.length, 2);
-  state.time = 160; player.detent();
+  state.time = 100; player.detent();
   assert.equal(state.sources.length, 3, 'un alignement reste prioritaire sur la rotation');
-  state.time = 300; player.turn();
+  state.time = 239; player.turn();
   assert.equal(state.sources.length, 3, 'le clic fort garde un court silence après lui');
-  state.time = 310; player.turn();
+  state.time = 240; player.turn();
   assert.equal(state.sources.length, 4);
+});
+
+test('audio : le premier mouvement sonne puis chaque course de douze degrés, même en inversant', async () => {
+  const { player, state } = harness();
+  await player.unlock();
+  player.resetTurn();
+  assert.equal(state.sources.length, 0, 'le simple contact ne joue aucun son');
+  player.turn(1);
+  assert.equal(state.sources.length, 1, 'un premier petit mouvement reste audible');
+  for (let degree = 1; degree <= 11; degree++) {
+    state.time = degree * 30;
+    player.turn(1);
+  }
+  assert.equal(state.sources.length, 1, 'le temps écoulé seul ne remplace pas la course angulaire');
+  state.time = 360; player.turn(1);
+  assert.equal(state.sources.length, 2);
+  state.time = 500; player.turn(6);
+  state.time = 600; player.turn(-6);
+  assert.equal(state.sources.length, 3, 'aller puis revenir compte douze degrés et non zéro');
+});
+
+test('audio : une vitesse réellement plus élevée rapproche les frottements sans dépasser le plafond', async () => {
+  async function movingAt(speed) {
+    const { player, state } = harness();
+    const heard = [];
+    await player.unlock();
+    player.resetTurn();
+    for (let frame = 1; frame <= 100; frame++) {
+      state.time = frame * 20;
+      const before = state.sources.length;
+      player.turn(speed * .02);
+      if (state.sources.length !== before) {
+        heard.push(state.time);
+        state.sources.at(-1).finish();
+      }
+    }
+    return heard;
+  }
+  const slow = await movingAt(30);
+  const normal = await movingAt(90);
+  const fast = await movingAt(180);
+  assert.ok(slow.length < normal.length && normal.length < fast.length);
+  assert.equal(slow[1] - slow[0], 400, '30 degrés par seconde : douze degrés en 400 ms');
+  assert.equal(normal[1] - normal[0], 140, '90 degrés par seconde : arrondi à la prochaine image');
+  assert.equal(fast[1] - fast[0], 100, '180 degrés par seconde : plafond temporel et arrondi à l’image');
+  for (const times of [slow, normal, fast]) {
+    assert.ok(times.slice(1).every((time, index) => time - times[index] >= 90));
+  }
+});
+
+test('audio : une image coalescée ou un énorme déplacement ne crée jamais une rafale à rattraper', async () => {
+  const { player, state } = harness();
+  await player.unlock();
+  player.turn(1);
+  state.time = 100;
+  player.turn(1e300);
+  assert.equal(state.sources.length, 2, 'au plus un frottement par mouvement appliqué');
+  state.time = 1000;
+  assert.equal(state.sources.length, 2, 'aucun son pendant l’immobilité');
+  player.turn(1);
+  assert.equal(state.sources.length, 2, 'l’excès du déplacement précédent a été jeté');
+  state.time = 1100; player.turn(11);
+  assert.equal(state.sources.length, 3);
+});
+
+test('audio : resetTurn oublie la course sans arrêter les chutes ni contourner les 90 ms', async () => {
+  const { player, state } = harness();
+  await player.unlock();
+  player.drop(); player.turn(1);
+  state.time = 20;
+  player.resetTurn();
+  assert.equal(state.sources.length, 2);
+  assert.equal(state.sources.every(source => !source.stopped), true);
+  player.turn(1);
+  assert.equal(state.sources.length, 2, 'un nouveau geste ne contourne pas le plafond commun');
+  state.time = 90;
+  player.turn(1);
+  assert.equal(state.sources.length, 3, 'le mouvement en cours peut reprendre au plafond sans attendre un autre cran entier');
+  state.time = 110; player.turn(11);
+  player.resetTurn();
+  state.time = 200;
+  assert.equal(state.sources.length, 3, 'un relâchement ne déclenche aucun son');
+  player.turn(1);
+  assert.equal(state.sources.length, 4, 'seul le premier mouvement du nouveau geste confirme la reprise');
+  state.time = 400; player.turn(1);
+  assert.equal(state.sources.length, 4, 'la course du geste précédent ne traverse pas le reset');
+});
+
+test('audio : la priorité d’alignement jette toute course parcourue dans sa pause de 140 ms', async () => {
+  const { player, state } = harness();
+  await player.unlock();
+  player.turn(1);
+  state.time = 100; player.turn(11);
+  player.detent();
+  state.time = 200; player.turn(1e300);
+  assert.equal(state.sources.length, 2);
+  state.time = 240; player.turn(1);
+  assert.equal(state.sources.length, 2, 'ni le reliquat avant alignement ni le mouvement supprimé ne sont rejoués');
+  state.time = 260; player.turn(11);
+  assert.equal(state.sources.length, 3, 'douze nouveaux degrés permettent le prochain frottement');
+});
+
+test('audio : les valeurs invalides et immobiles ne comptent pas dans la course angulaire', async () => {
+  const { player, state } = harness();
+  await player.unlock();
+  for (const value of [NaN, Infinity, -Infinity, '12', null, 0, true, {}, []]) player.turn(value);
+  assert.equal(state.sources.length, 0);
+  player.turn(1);
+  state.time = 200;
+  player.turn(11);
+  for (const value of [NaN, Infinity, -Infinity, '12', null, 0, true, {}, []]) player.turn(value);
+  assert.equal(state.sources.length, 1);
+  player.turn(-1);
+  assert.equal(state.sources.length, 2, 'les appels invalides n’ajoutent ni ne rejouent de distance');
+});
+
+test('audio : masque et sourdine effacent la phase angulaire avant une vraie reprise', async () => {
+  for (const interruption of ['mask', 'mute']) {
+    const { player, state } = harness();
+    await player.unlock();
+    player.turn(1);
+    state.time = 100; player.turn(11);
+    if (interruption === 'mask') player.stop();
+    else player.setEnabled(false);
+    state.time = 300;
+    player.turn(1e300);
+    assert.equal(state.sources.length, 1);
+    player.setEnabled(true);
+    await player.unlock();
+    assert.equal(state.sources.length, 1, 'réactiver ne rejoue aucune rotation');
+    player.turn(1);
+    assert.equal(state.sources.length, 2, 'la reprise confirme uniquement son premier mouvement réel');
+    state.time = 500; player.turn(1);
+    assert.equal(state.sources.length, 2, 'les degrés précédant le masque sont oubliés');
+  }
 });
 
 test('audio : le masque coupe toutes les voix et exige un nouveau geste', async () => {

@@ -579,3 +579,17 @@ Validation :
 - Capture locale : `output/recette/cascado-v1.32-clic-passage.png`. La page instrumentée est temporaire et retirée du build avant publication ; ses données n’entrent pas dans le dépôt.
 
 La recette confirme les événements audio réels du navigateur sur ordinateur. Elle ne remplace pas une écoute sur le haut-parleur d’un iPhone physique ; le volume et le ressenti tactile restent à apprécier sur cet appareil. La version visible à l’accueil est **1.32**.
+
+## Évolution v1.33 — rythme sonore lié à la rotation (31 octobre 2026)
+
+Les sons doux de roue suivent désormais le mouvement réellement accepté par le moteur. Un premier déplacement, même bref, est audible ; les sons suivants exigent 12° de course absolue et au moins 90 ms depuis la dernière émission. La somme des distances, et non le déplacement net, conserve le son dans les inversions et les gestes coalescés. Le compteur est saturé pour éviter les rafales différées ; aucun timer ne joue un son lorsque le doigt ne bouge plus. Début et fin de geste, pauses de chute IA, masque et sourdine réarment cette phase. Cette remise à zéro ne coupe pas les voix des jetons déjà en cours. Le clic de passage conserve sa détection propre et 140 ms de priorité ; les distances parcourues pendant ce silence sont jetées. Timbre, volume des frottements, sons adverses et mécanique restent identiques.
+
+Validation :
+
+- Suite complète : **599 tests, 584 réussis, zéro échec, 15 ignorés** (intégrations navigateur/IndexedDB optionnelles). Suite ciblée : **96 réussis, aucun échec ou ignoré**, dont 27 audio et 36 de routage réel.
+- Les vitesses déterministes de 30, 90 et 180°/s sont comparées sur une même durée ; leurs intervalles augmentent lorsque le geste ralentit. Les plafonds temporels, le premier mouvement, la pause après clic, les distances énormes coalescées, les invalides, le maintien immobile et les reprises sont couverts.
+- Les gestionnaires réels de l’application transmettent la distance aimantée réellement acceptée sur A et B, au clavier et pendant les tours IA. Un aller-retour coalescé de 50° puis −50° transmet 100°, même si l’angle final est identique. Rejets du moteur, contact immobile et plateau aimanté immobile ne transmettent aucun son. Les remises à zéro n’appellent pas l’arrêt des chutes ; Full et les informations adverses gardent leurs frontières.
+- Mesure dans le navigateur intégré avec le vrai module sonore et les vrais démarrages Web Audio, sur origine locale isolée : pendant deux secondes à **30°/s**, **5 sons**, intervalle médian **401 ms** ; à **180°/s**, **22 sons**, intervalle médian **92 ms**. Aucun son n’est déclenché après le dernier mouvement et aucune erreur ou alerte de console n’est observée.
+- Capture : `output/recette/cascado-v1.33-rythme.png`. La page de mesure est temporaire et retirée du build avant publication. Ces mesures de démarrages audio sur ordinateur ne remplacent pas une écoute sur le téléphone physique.
+
+La version visible à l’accueil est **1.33**.

@@ -11,7 +11,7 @@ function deferred() {
 // Fake Web Audio nodes retain their lifecycle so a mask can be checked for
 // lingering sources. No browser, external dependency or real audio is needed.
 function harness(options = {}) {
-  const state = { time: 0, contexts: [], sources: [], gains: [], requests: [] };
+  const state = { time: 0, contexts: [], sources: [], gains: [], requests: [], resumeStates: [] };
   class FakeAudioContext {
     constructor() {
       if (options.constructorError) throw new Error('Audio unavailable');
@@ -20,6 +20,7 @@ function harness(options = {}) {
       state.contexts.push(this);
     }
     async resume() {
+      state.resumeStates.push(this.state);
       if (options.resumeError) throw new Error('Gesture blocked');
       if (options.resumeGate) await options.resumeGate.promise;
       this.state = 'running';
@@ -36,6 +37,7 @@ function harness(options = {}) {
     }
     createBufferSource() {
       const source = {
+        context: this,
         started: false, stopped: false, connected: false, playbackRate: {value: 1},
         connect() { this.connected = true; },
         disconnect() { this.connected = false; },
@@ -55,6 +57,7 @@ function harness(options = {}) {
     // The browser layer is injected so lifecycle and playback stay deterministic.
     ...(!options.production ? { available: true } : {}),
     ...(options.enabled !== undefined ? { enabled: options.enabled } : {}),
+    ...(options.audioSession !== undefined ? { audioSession: options.audioSession } : {}),
     AudioContext: FakeAudioContext,
     now: () => state.time,
     fetch: async url => {
@@ -232,4 +235,136 @@ test('audio : un cran reste prioritaire à la limite des voix, sans lecture diff
   player.stop();
   state.time+=500; player.detent();
   assert.equal(state.sources.length,6);
+});
+
+test('audio : un contexte interrompu reprend au prochain geste sans recharger les clips', async () => {
+  const { player, state } = harness();
+  await player.unlock();
+  player.turn();
+  const context = state.contexts[0];
+  context.state = 'interrupted';
+  state.time = 200;
+  player.drop();
+  assert.equal(state.sources.length, 1, 'aucune lecture pendant une interruption iPhone');
+  await player.unlock();
+  player.drop();
+  assert.deepEqual(state.resumeStates, ['suspended', 'interrupted']);
+  assert.equal(state.contexts.length, 1);
+  assert.equal(state.requests.length, 3);
+  assert.equal(state.sources.length, 2);
+  assert.equal(state.sources[1].context, context);
+});
+
+test('audio : un contexte fermé est remplacé et ses anciennes voix sont libérées', async () => {
+  const { player, state } = harness();
+  await player.unlock();
+  player.turn();
+  const original = state.contexts[0];
+  original.state = 'closed';
+  await player.unlock();
+  assert.equal(state.contexts.length, 2);
+  assert.equal(state.sources[0].stopped, true);
+  assert.equal(state.sources[0].connected, false);
+  assert.equal(state.sources[0].onended, null);
+  player.drop();
+  assert.equal(state.sources.length, 2);
+  assert.equal(state.sources[1].context, state.contexts[1]);
+  assert.equal(state.requests.length, 3, 'les buffers décodés restent utilisables dans le nouveau contexte');
+});
+
+test('audio : un premier échec HTTP ou décodage peut être récupéré au geste suivant', async () => {
+  for (const failure of ['httpError', 'decoderError']) {
+    const options = { [failure]: true };
+    const { player, state } = harness(options);
+    await player.unlock();
+    player.turn(); player.drop();
+    assert.equal(state.sources.length, 0, `${failure} reste silencieux`);
+    assert.equal(state.requests.length, 3);
+    options[failure] = false;
+    await player.unlock();
+    assert.equal(state.sources.length, 0, 'une récupération ne rejoue pas les événements perdus');
+    player.turn(); player.detent(); player.slide(); player.drop();
+    assert.equal(state.sources.length, 4, `${failure} récupère toutes les familles`);
+    assert.equal(state.requests.length, 6);
+    await player.unlock();
+    assert.equal(state.requests.length, 6, 'aucun nouveau chargement une fois les clips disponibles');
+    assert.equal(state.contexts.length, 1);
+  }
+});
+
+test('audio : la session média retrouve sa catégorie au masque et à la mise en sourdine', async () => {
+  const audioSession = { type: 'ambient' };
+  const { player, state } = harness({ audioSession });
+  await player.unlock();
+  assert.equal(audioSession.type, 'playback');
+  await player.unlock();
+  player.stop();
+  assert.equal(audioSession.type, 'ambient', 'deux gestes ne remplacent pas la catégorie initiale par playback');
+  await player.unlock();
+  assert.equal(audioSession.type, 'playback');
+  player.drop();
+  player.setEnabled(false);
+  assert.equal(audioSession.type, 'ambient');
+  assert.equal(state.sources[0].stopped, true);
+  await player.unlock();
+  assert.equal(audioSession.type, 'ambient', 'un geste ne réclame pas la session quand le son est coupé');
+  player.setEnabled(true);
+  await player.unlock();
+  assert.equal(audioSession.type, 'playback');
+  player.stop();
+  assert.equal(audioSession.type, 'ambient');
+});
+
+test('audio : un refus de la catégorie média laisse fonctionner Web Audio', async () => {
+  let attempts = 0;
+  const audioSession = {
+    get type() { return 'auto'; },
+    set type(value) { attempts++; throw new Error(`Unsupported session: ${value}`); },
+  };
+  const { player, state } = harness({ audioSession });
+  await assert.doesNotReject(() => player.unlock());
+  player.drop();
+  assert.equal(state.sources.length, 1);
+  assert.ok(attempts > 0);
+  assert.doesNotThrow(() => player.stop());
+  assert.equal(state.sources[0].stopped, true);
+  assert.equal(audioSession.type, 'auto');
+});
+
+test('audio : activer explicitement le son joue un seul cran de confirmation', async () => {
+  const { player, state } = harness({ enabled: false });
+  await player.confirmEnabled();
+  assert.equal(state.contexts.length, 0, 'la confirmation ne réactive pas une préférence muette');
+  player.setEnabled(true);
+  await player.confirmEnabled();
+  assert.equal(state.sources.length, 1);
+  assert.equal(state.sources[0].started, true);
+  assert.equal(state.sources[0].playbackRate.value, .82);
+  assert.equal(state.requests.length, 3);
+});
+
+test('audio : une confirmation en attente ne sonne jamais après masque ou sourdine', async () => {
+  for (const gateName of ['fetchGate', 'resumeGate']) {
+    for (const interruption of ['mask', 'mute']) {
+      const gate = deferred();
+      const audioSession = { type: 'auto' };
+      const { player, state } = harness({ [gateName]: gate, audioSession });
+      const pending = player.confirmEnabled();
+      await Promise.resolve();
+      if (interruption === 'mask') player.stop();
+      else player.setEnabled(false);
+      gate.resolve();
+      await pending;
+      assert.equal(state.sources.length, 0, `${gateName}/${interruption} ne laisse pas de clic retardé`);
+      assert.equal(audioSession.type, 'auto', 'la résolution tardive ne reprend pas la session média');
+      player.turn(); player.drop();
+      assert.equal(state.sources.length, 0);
+      player.setEnabled(true);
+      await player.unlock();
+      assert.equal(state.sources.length, 0, 'reprendre ne rejoue pas la confirmation annulée');
+      player.turn();
+      assert.equal(state.sources.length, 1, 'un nouvel événement peut rejouer après un nouveau geste');
+      player.stop();
+    }
+  }
 });

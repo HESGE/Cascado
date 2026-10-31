@@ -32,6 +32,24 @@ export function createSoundPlayer(options = {}) {
   const buffers = new Map();
   const active = new Set();
   const lastPlayed = new Map();
+  let sessionBeforePlayback = null;
+
+  function playbackSession() {
+    // On compatible iPhones, explicit game audio uses the media volume rather
+    // than the ringer switch. Older browsers keep their normal audio policy.
+    try {
+      const session = options.audioSession ?? globalThis.navigator?.audioSession;
+      if (!session) return;
+      if (!sessionBeforePlayback) sessionBeforePlayback = { session, type: session.type };
+      session.type = 'playback';
+    } catch { /* This optional API must not prevent ordinary Web Audio. */ }
+  }
+
+  function releaseSession() {
+    if (!sessionBeforePlayback) return;
+    try { sessionBeforePlayback.session.type = sessionBeforePlayback.type; } catch { /* Optional API. */ }
+    sessionBeforePlayback = null;
+  }
 
   function stop() {
     generation++;
@@ -42,11 +60,14 @@ export function createSoundPlayer(options = {}) {
       try { voice.source.disconnect(); voice.gain.disconnect(); } catch { /* Optional audio. */ }
     }
     active.clear();
+    releaseSession();
   }
 
   async function loadClips() {
     if (!fetchAudio) return;
-    await Promise.all([...new Set(Object.values(SOUND_ASSETS))].map(async url => {
+    const missing = [...new Set(Object.values(SOUND_ASSETS))].filter(url =>
+      Object.entries(SOUND_ASSETS).some(([kind, asset]) => asset === url && !buffers.has(kind)));
+    await Promise.all(missing.map(async url => {
       try {
         const response = await fetchAudio(url);
         if (!response.ok) return;
@@ -60,16 +81,20 @@ export function createSoundPlayer(options = {}) {
   async function unlock() {
     if (!enabled || !AudioContextClass) return;
     try {
-      if (!context) {
+      if (!context || context.state === 'closed') {
+        if (context) stop();
         context = new AudioContextClass();
         master = context.createGain();
         master.gain.value = 0.3;
         master.connect(context.destination);
       }
+      playbackSession();
       // resume() must be invoked inside a real pointer/key gesture on mobile.
       const attempt = generation;
-      const resuming = context.state === 'suspended' ? context.resume() : Promise.resolve();
-      if (!loading) loading = loadClips();
+      const resuming = context.state !== 'running' ? context.resume() : Promise.resolve();
+      if (!loading && buffers.size < Object.keys(SOUND_ASSETS).length) {
+        loading = loadClips().finally(() => { loading = null; });
+      }
       await resuming;
       if (generation === attempt && enabled) unlocked = context.state === 'running';
       await loading;
@@ -114,6 +139,13 @@ export function createSoundPlayer(options = {}) {
     get available() { return available; },
     get enabled() { return enabled; },
     unlock,
+    async confirmEnabled() {
+      const warming = unlock();
+      const attempt = generation;
+      await warming;
+      // This is confirmation of an explicit unmute, never a queued game event.
+      if (attempt === generation) play('detent');
+    },
     setEnabled(value) {
       enabled = available && Boolean(value);
       if (!enabled) { unlocked = false; stop(); }

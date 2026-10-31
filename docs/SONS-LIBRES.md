@@ -1,5 +1,9 @@
 # Cascado — Sons libres du jeu
 
+**Version 1.30 · 31 octobre 2026 : activation iPhone renforcée.** Le son reprend aussi après un contexte Safari `interrupted`, et un contexte fermé est recréé au prochain geste. Les clips manquants sont retentés sans recharger ceux qui sont déjà prêts. Le relâchement du doigt réessaie l’activation ; le masque continue d’arrêter les sons immédiatement. La réactivation du haut-parleur émet un bref clic de confirmation, abandonné si une interruption survient pendant son chargement.
+
+Lorsqu’elle est prise en charge, la session audio `playback` permet d’utiliser le volume multimédia sur iPhone. Le type de session précédent est rétabli au passage sous masque et à la mise en sourdine. L’API reste facultative : si elle est absente ou refuse l’opération, Web Audio reste disponible avec les règles du navigateur. Sur les anciens iOS, il peut être nécessaire de désactiver le mode silencieux. Comportement documenté par [WebKit](https://bugs.webkit.org/show_bug.cgi?id=237322).
+
 **Version 1.28 · 31 octobre 2026 : les sons sont rétablis**, avec un bouton haut-parleur et un clic net lorsque le glisser atteint un alignement aimanté. La préférence `ddc-sound-v2` démarre avec le son activé, puis conserve le choix du joueur. Cette version remplace la mise en sourdine globale du 29 octobre.
 
 Les trois sons sont des enregistrements de **Kenney**, publiés sous **Creative Commons Zero 1.0 Universal (CC0)**. L’utilisation, la modification et la redistribution, y compris dans un jeu commercial, sont autorisées. L’attribution n’est pas obligatoire ; le crédit « Sons : Kenney » est conservé ici.

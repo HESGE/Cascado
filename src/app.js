@@ -204,7 +204,7 @@ function renderHome() {
     <div class="install-status" id="install-status">${offlineStatus()}</div>
     <button class="text-button" data-action="install">Installer sur mon téléphone</button>
     ${updateAvailable ? '<button class="secondary" data-action="update">Une mise à jour est disponible</button>' : ''}
-    <p class="muted local-note">Sans compte · Partie enregistrée sur cet appareil<br><span data-release>Version 1.28</span></p></section>`;
+    <p class="muted local-note">Sans compte · Partie enregistrée sur cet appareil<br><span data-release>Version 1.29</span></p></section>`;
 }
 
 

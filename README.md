@@ -1,6 +1,6 @@
 # Cascado — V1
 
-Version documentaire 1.28 · 31 octobre 2026
+Version documentaire 1.29 · 31 octobre 2026
 
 [Jouer à Cascado](https://hesge.github.io/Cascado/) · [Code source sur GitHub](https://github.com/HESGE/Cascado)
 
@@ -8,7 +8,9 @@ Le dépôt contient le jeu, ses ressources, ses tests et sa documentation. Les c
 
 PWA en français pour deux joueurs sur un smartphone, principalement en portrait 9:16. Chaque place peut être occupée par un humain ou une IA locale : humain contre humain, humain contre IA ou IA contre IA. Chaque joueur manipule sa face d’un mécanisme commun. Entre humains, le téléphone passe sous masque, puis le destinataire affiche son plateau avec un seul bouton ; les résultats suivent le même parcours. Face à une IA, le plateau de l’humain reste affiché pendant les deux tours, sans écran de passage.
 
-Depuis la version **1.24**, le fond du plateau occupe **toute la surface disponible du navigateur ou de la PWA**, bord à bord. Le mécanisme conserve ses proportions ; les commandes discrètes gardent des cibles de **44 pixels**. La version **1.27** renforce le mode onglet sur iPhone : hauteur utile capturée en pixels à partir du petit viewport, racine et cadre explicitement bornés, plateau attaché à ce cadre, blocage dès le premier contact sur les roues et le fond. La hauteur reste stable entre les tours et face aux variations verticales des barres ; elle est recalée après rotation ou reprise. Les cibles tactiles d’origine gardent leurs écouteurs même lorsque le SVG est remplacé pendant le geste. Boutons, liens, labels et contrôles natifs conservent leur activation ; les menus gardent leur défilement normal. Aucune installation n’est nécessaire. Le site ne peut pas figer les barres natives du navigateur. Ce correctif ne modifie ni moteur, ni profils, ni sauvegardes. « Version 1.28 » apparaît en bas de l’accueil pour identifier le code chargé.
+La version **1.29** adapte les pages et formulaires à la largeur disponible, y compris les largeurs réduites par le zoom du navigateur. Les champs peuvent rétrécir sans élargir la page, les marges tiennent compte des zones de sécurité et l’accueil utilise des espacements plus compacts quand la hauteur disponible est limitée. Le plateau conserve ses proportions et le verrouillage des gestes reste inchangé.
+
+Depuis la version **1.24**, le fond du plateau occupe **toute la surface disponible du navigateur ou de la PWA**, bord à bord. Le mécanisme conserve ses proportions ; les commandes discrètes gardent des cibles de **44 pixels**. La version **1.27** renforce le mode onglet sur iPhone : hauteur utile capturée en pixels à partir du petit viewport, racine et cadre explicitement bornés, plateau attaché à ce cadre, blocage dès le premier contact sur les roues et le fond. La hauteur reste stable entre les tours et face aux variations verticales des barres ; elle est recalée après rotation ou reprise. Les cibles tactiles d’origine gardent leurs écouteurs même lorsque le SVG est remplacé pendant le geste. Boutons, liens, labels et contrôles natifs conservent leur activation ; les menus gardent leur défilement normal. Aucune installation n’est nécessaire. Le site ne peut pas figer les barres natives du navigateur. Ce correctif ne modifie ni moteur, ni profils, ni sauvegardes. « Version 1.29 » apparaît en bas de l’accueil pour identifier le code chargé.
 
 La version **1.28** rétablit les sons et leur bouton, ajoute un clic net à l’arrivée sur un alignement aimanté, renforce l’aimantation et permet de saisir une roue jusqu’à **16 pixels CSS autour de son bord**. Le seuil de passage des jetons et les règles restent identiques.
 

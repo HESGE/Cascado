@@ -73,7 +73,7 @@ p { line-height: 1.5; }
 .button-row > *, .actions > * { flex: 1; min-width: 0; max-width: 100%; }
 .actions { flex-direction: column; }
 .field { display: grid; grid-template-columns: minmax(0, 1fr); min-width: 0; gap: 7px; font-size: .9rem; }
-.field input, .field select { width: 100%; min-width: 0; max-width: 100%; min-height: 48px; padding: 11px 13px; border: 1px solid #aabdb7; border-radius: 12px; background: #fffdf7; color: var(--navy); }
+.field input, .field select { width: 100%; min-width: 0; max-width: 100%; min-height: 48px; padding: 11px 13px; border: 1px solid #aabdb7; border-radius: 12px; background: #fffdf7; color: var(--navy); font-size: 1rem; }
 .field input:focus, .field select:focus { border-color: var(--navy); }
 .field small { color: var(--muted); line-height: 1.4; }
 .symbol { display: inline-block; color: var(--player-color, var(--amber)); flex-shrink: 0; }
@@ -112,7 +112,7 @@ p { line-height: 1.5; }
 #ai-speed-panel { position: fixed; z-index: 5; display: flex; gap: 8px; color: var(--navy); }
 #ai-speed-panel label { display: flex; align-items: center; justify-content: space-between; flex: 1; gap: 8px; min-width: 0; padding-left: 10px; border-radius: 12px; background: #e6ebe7; }
 #ai-speed-panel label > span:not(.sr-only) { font-size: .75rem; white-space: nowrap; }
-#ai-speed-panel select { height: 44px; min-height: 44px; width: 106px; min-width: 0; padding: 5px 8px; border: 1px solid #aabdb7; border-radius: 10px; color: var(--navy); background: #fffdf7; font: inherit; font-size: .8rem; touch-action: manipulation; }
+#ai-speed-panel select { height: 44px; min-height: 44px; width: 106px; min-width: 0; padding: 5px 8px; border: 1px solid #aabdb7; border-radius: 10px; color: var(--navy); background: #fffdf7; font: inherit; font-size: 1rem; touch-action: manipulation; }
 #ai-speed-panel.is-compact label { padding-left: 0; }
 #ai-speed-panel button { min-width: 76px; min-height: 44px; height: 44px; padding: 8px 12px; font-size: .85rem; }
 .install-status { padding: 12px 14px; border-radius: 12px; background: #e6ebe8; color: var(--muted); font-size: .8rem; line-height: 1.45; }
@@ -291,7 +291,7 @@ html.game-viewport-locked #app > .play { position: absolute; }
   color: #c6dfe7; font-size: .64rem; line-height: 1.25; text-align: left;
 }
 .surface-help:focus-visible { outline: 2px solid #f5ac45; outline-offset: 0; }
-.play .rotation-row .ai-speed-slot { flex: 0 0 76px; width: 76px; }
+.play .rotation-row .ai-speed-slot { flex: 0 1 106px; width: 106px; }
 .play .end-turn {
   position: absolute;
   right: var(--edge); bottom: calc(6px + var(--safe-bottom));
@@ -319,7 +319,7 @@ body:has(.play) #ai-speed-panel label > span:not(.sr-only) { font-size: .68rem; 
 body:has(.play) #ai-speed-panel select {
   width: 100%;
   background: #164f68; color: #eff7f6; border: 1px solid #ffffff35;
-  border-radius: 22px; font-size: .7rem;
+  border-radius: 22px; font-size: 1rem;
 }
 body:has(.play) #ai-speed-panel button {
   background: #ffffff14; color: #eff7f6; border: 1px solid #ffffff35;

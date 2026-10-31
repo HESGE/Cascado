@@ -1,6 +1,46 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { createSoundPlayer, SOUND_ASSETS, SOUND_AVAILABLE } from '../src/sound.js';
+
+const ASSET_COUNT = new Set(Object.values(SOUND_ASSETS)).size;
+
+function readWave(url) {
+  const bytes = readFileSync(new URL(url));
+  assert.equal(bytes.toString('ascii', 0, 4), 'RIFF');
+  assert.equal(bytes.toString('ascii', 8, 12), 'WAVE');
+  let format = null, pcm = null;
+  const chunks = [];
+  for (let offset = 12; offset + 8 <= bytes.length;) {
+    const name = bytes.toString('ascii', offset, offset + 4);
+    const size = bytes.readUInt32LE(offset + 4);
+    const start = offset + 8;
+    chunks.push(name);
+    if (name === 'fmt ') format = { encoding: bytes.readUInt16LE(start), channels: bytes.readUInt16LE(start + 2), rate: bytes.readUInt32LE(start + 4), bits: bytes.readUInt16LE(start + 14) };
+    if (name === 'data') pcm = bytes.subarray(start, start + size);
+    offset = start + size + size % 2;
+  }
+  assert.deepEqual(format, { encoding: 1, channels: 1, rate: 44100, bits: 16 });
+  assert.ok(pcm?.length);
+  const samples = Array.from({ length: pcm.length / 2 }, (_, index) => pcm.readInt16LE(index * 2) / 32768);
+  return { ...format, chunks, samples, duration: samples.length / format.rate, peak: samples.reduce((peak, value) => Math.max(peak, Math.abs(value)), 0), energy: samples.reduce((sum, value) => sum + value * value, 0) / format.rate };
+}
+
+function dominantFrequency(wave, start, length = .08) {
+  const slice = wave.samples.slice(Math.round(start * wave.rate), Math.round((start + length) * wave.rate));
+  let strongest = { frequency: 0, energy: -1 };
+  for (let frequency = 200; frequency <= 1200; frequency += 10) {
+    let real = 0, imaginary = 0;
+    for (let i = 0; i < slice.length; i++) {
+      const value = slice[i] * (.5 - .5 * Math.cos(2 * Math.PI * i / (slice.length - 1)));
+      const phase = 2 * Math.PI * frequency * i / wave.rate;
+      real += value * Math.cos(phase); imaginary += value * Math.sin(phase);
+    }
+    const energy = real * real + imaginary * imaginary;
+    if (energy > strongest.energy) strongest = { frequency, energy };
+  }
+  return strongest.frequency;
+}
 
 function deferred() {
   let resolve, reject;
@@ -85,12 +125,12 @@ function harness(options = {}) {
       };
       return source;
     }
-    async decodeAudioData() {
+    async decodeAudioData(data) {
       state.decoding.push(this);
       const gate = options.decodeGate;
       if (gate) await gate.promise;
       if (options.decoderError) throw new Error('Decoder unavailable');
-      const buffer = { duration: 0.3, decodedIn: this };
+      const buffer = { duration: 0.3, decodedIn: this, asset: data.asset };
       state.decoded.push(buffer);
       return buffer;
     }
@@ -107,7 +147,7 @@ function harness(options = {}) {
       state.requests.push(url);
       if (options.fetchGate) await options.fetchGate.promise;
       if (options.fetchError) throw new Error('Offline');
-      return { ok: !options.httpError, arrayBuffer: async () => new ArrayBuffer(8) };
+      return { ok: !options.httpError, arrayBuffer: async () => Object.assign(new ArrayBuffer(8), { asset: url }) };
     },
   });
   return { player, state };
@@ -142,7 +182,7 @@ test('audio : seul un geste explicite active les clips locaux, chargés une fois
   player.turn();
   assert.equal(state.sources.filter(source => source.started).length, 1);
   await player.unlock();
-  assert.equal(state.requests.length, 3);
+  assert.equal(state.requests.length, ASSET_COUNT);
   assert.equal(state.sources.length, 1, 'unlock ne rejoue aucun événement');
 });
 
@@ -400,35 +440,22 @@ test('audio : la polyphonie est bornée et les sons écartés ne sont jamais dif
   assert.equal(state.sources.length, 6);
 });
 
-test('audio : la rotation est un court frottement filtré avec fondus, distinct du clic net d’alignement', async () => {
+test('audio : la rotation utilise un petit clic de coffre discret, distinct de l’alignement', async () => {
   const {player,state} = harness();
   await player.unlock();
   player.turn(); player.detent();
   assert.equal(state.sources.length,2);
   assert.notEqual(state.sources[0].buffer,state.sources[1].buffer, 'la rotation ne recycle plus le clic d’alignement');
   assert.equal(state.sources[1].playbackRate.value,.82);
-  const friction = state.sources[0];
-  const filter = state.filters[0];
-  const envelope = state.gains[1].gain.automation;
-  assert.equal(state.filters.length,1, 'le clic net conserve son signal sans filtre');
-  assert.equal(friction.target,filter);
-  assert.equal(filter.target,state.gains[1]);
-  assert.equal(filter.type,'lowpass');
-  assert.ok(filter.frequency.value >= 800 && filter.frequency.value <= 2000, 'les aigus secs sont atténués');
-  assert.equal(friction.playbackRate.value,1, 'la distinction ne repose pas sur un simple changement de hauteur');
-  assert.equal(friction.startArgs[0],friction.context.currentTime, 'le frottement commence immédiatement');
-  assert.ok(friction.startArgs[1] >= .1, 'le départ exclut l’impact initial de slide.wav');
-  assert.ok(friction.startArgs[2] <= .12, 'un bref fragment remplace le glissement entier');
-  assert.equal(envelope[0].value,0);
-  assert.equal(envelope[0].time,friction.startArgs[0]);
-  assert.equal(envelope[1].ramp,true);
-  assert.ok(envelope[1].time > envelope[0].time, 'l’attaque est adoucie');
-  assert.equal(envelope.at(-1).value,0);
-  assert.equal(envelope.at(-1).ramp,true);
-  assert.equal(envelope.at(-1).time,friction.startArgs[0]+friction.startArgs[2]);
-  assert.ok(state.gains[2].gain.value > Math.max(...envelope.map(point=>point.value)), 'le bruit de fond reste moins amplifié que le clic net');
+  const tick = state.sources[0];
+  assert.equal(tick.buffer.asset,SOUND_ASSETS.wheel);
+  assert.equal(state.sources[1].buffer.asset,SOUND_ASSETS.detent);
+  assert.equal(tick.playbackRate.value,1, 'le timbre du petit clic est composé dans son propre fichier');
+  assert.deepEqual(tick.startArgs,[], 'le clic commence immédiatement et joue son court fichier entier');
+  assert.ok(state.gains[1].gain.value > 0 && state.gains[1].gain.value <= .15, 'la rotation reste audible mais beaucoup moins amplifiée');
+  assert.equal(state.gains[2].gain.value,1, 'le clic d’alignement conserve son volume');
   assert.deepEqual(state.sources[1].startArgs,[], 'l’alignement garde le clip entier');
-  assert.equal(state.requests.length,3,'la rotation réutilise le clip de glissement déjà local');
+  assert.equal(state.requests.length,ASSET_COUNT,'chaque son local est chargé une seule fois');
   state.time=50; player.detent();
   state.time=139; player.detent();
   assert.equal(state.sources.length,2);
@@ -457,7 +484,7 @@ test('audio : un cran reste prioritaire à la limite des voix, sans lecture diff
   player.detent();
   assert.equal(state.sources.length,6);
   assert.equal(state.sources[0].stopped,true);
-  assert.equal(state.filters[0].connected,false, 'l’alignement libère aussi le filtre de la rotation évincée');
+  assert.equal(state.sources[0].target.connected,false, 'l’alignement libère aussi le gain de la rotation évincée');
   assert.equal(state.sources.filter(source=>!source.stopped).length,5);
   player.stop();
   state.time+=500; player.detent();
@@ -477,7 +504,7 @@ test('audio : un contexte interrompu reprend au prochain geste sans recharger le
   player.drop();
   assert.deepEqual(state.resumeStates, ['suspended', 'interrupted']);
   assert.equal(state.contexts.length, 1);
-  assert.equal(state.requests.length, 3);
+  assert.equal(state.requests.length, ASSET_COUNT);
   assert.equal(state.sources.length, 2);
   assert.equal(state.sources[1].context, context);
 });
@@ -496,7 +523,7 @@ test('audio : un contexte fermé est remplacé et ses anciennes voix sont libér
   player.drop();
   assert.equal(state.sources.length, 2);
   assert.equal(state.sources[1].context, state.contexts[1]);
-  assert.equal(state.requests.length, 3, 'les buffers décodés restent utilisables dans le nouveau contexte');
+  assert.equal(state.requests.length, ASSET_COUNT, 'les buffers décodés restent utilisables dans le nouveau contexte');
 });
 
 test('audio : un premier échec HTTP ou décodage peut être récupéré au geste suivant', async () => {
@@ -506,15 +533,15 @@ test('audio : un premier échec HTTP ou décodage peut être récupéré au gest
     await player.unlock();
     player.turn(); player.drop();
     assert.equal(state.sources.length, 0, `${failure} reste silencieux`);
-    assert.equal(state.requests.length, 3);
+    assert.equal(state.requests.length, ASSET_COUNT);
     options[failure] = false;
     await player.unlock();
     assert.equal(state.sources.length, 0, 'une récupération ne rejoue pas les événements perdus');
     player.turn(); player.detent(); player.slide(); player.drop();
     assert.equal(state.sources.length, 4, `${failure} récupère toutes les familles`);
-    assert.equal(state.requests.length, 6);
+    assert.equal(state.requests.length, ASSET_COUNT * 2);
     await player.unlock();
-    assert.equal(state.requests.length, 6, 'aucun nouveau chargement une fois les clips disponibles');
+    assert.equal(state.requests.length, ASSET_COUNT * 2, 'aucun nouveau chargement une fois les clips disponibles');
     assert.equal(state.contexts.length, 1);
   }
 });
@@ -567,7 +594,7 @@ test('audio : activer explicitement le son joue un seul cran de confirmation', a
   assert.equal(state.sources.length, 1);
   assert.equal(state.sources[0].started, true);
   assert.equal(state.sources[0].playbackRate.value, .82);
-  assert.equal(state.requests.length, 3);
+  assert.equal(state.requests.length, ASSET_COUNT);
 });
 
 test('audio : une confirmation en attente ne sonne jamais après masque ou sourdine', async () => {
@@ -721,7 +748,7 @@ test('audio : tester le son recrée même un contexte running et conserve les cl
   assert.equal(await confirmation, true);
   assert.equal(state.sources.length, 2);
   assert.equal(state.sources[1].context, state.contexts[1]);
-  assert.equal(state.requests.length, 3, 'les clips déjà disponibles ne sont pas rechargés');
+  assert.equal(state.requests.length, ASSET_COUNT, 'les clips déjà disponibles ne sont pas rechargés');
   assert.equal(player.ready, true);
   assert.equal(await player.confirmEnabled(), true, 'un nouvel essai explicite peut confirmer sans ancien throttle');
   assert.equal(state.contexts.length, 3);
@@ -774,22 +801,153 @@ test('audio : un ancien décodage ne remplit pas le cache ni ne termine le charg
   const { player, state } = harness(options);
   const obsolete = player.unlock();
   await new Promise(resolve => setImmediate(resolve));
-  assert.equal(state.decoding.length, 3);
+  assert.equal(state.decoding.length, ASSET_COUNT);
   options.decodeGate = newDecode;
   const confirmation = player.confirmEnabled();
   await new Promise(resolve => setImmediate(resolve));
-  assert.equal(state.decoding.length, 6);
-  assert.equal(state.requests.length, 6);
+  assert.equal(state.decoding.length, ASSET_COUNT * 2);
+  assert.equal(state.requests.length, ASSET_COUNT * 2);
   oldDecode.resolve();
   await obsolete;
   assert.equal(player.ready, false, 'le décodage de l’ancien contexte ne fournit aucun clip au nouveau');
   assert.equal(state.sources.length, 0);
   const sameContext = player.unlock();
-  assert.equal(state.requests.length, 6, 'le finally obsolète ne supprime pas le chargement courant partagé');
+  assert.equal(state.requests.length, ASSET_COUNT * 2, 'le finally obsolète ne supprime pas le chargement courant partagé');
   newDecode.resolve();
   await sameContext;
   assert.equal(await confirmation, true);
   assert.equal(player.ready, true);
   assert.equal(state.sources.length, 1);
   assert.equal(state.sources[0].buffer.decodedIn, state.contexts[1], 'seuls les buffers décodés pour la génération courante sont publiés');
+});
+
+test('audio : le véritable clic de coffre est bref, feutré et sans métadonnées', async () => {
+  const tick = readWave(SOUND_ASSETS.wheel);
+  assert.deepEqual(tick.chunks, ['fmt ', 'data']);
+  assert.ok(tick.duration >= .025 && tick.duration <= .04);
+  assert.ok(tick.peak >= .1 && tick.peak <= .18);
+  assert.equal(tick.samples[0], 0);
+  assert.equal(tick.samples.at(-1), 0);
+  const { player, state } = harness();
+  await player.unlock(); player.turn(1);
+  const gain = state.gains[0].gain.value * state.gains[1].gain.value;
+  assert.ok(tick.peak * gain <= .006, 'pic final discret, sous celui de l’ancien frottement');
+  assert.ok(tick.energy * gain * gain < 5e-8, 'budget d’énergie réduit pour les rotations répétées');
+});
+
+test('audio : les mélodies originales montent pour la victoire et descendent doucement pour la défaite', () => {
+  const victory = readWave(SOUND_ASSETS.victory);
+  const defeat = readWave(SOUND_ASSETS.defeat);
+  for (const wave of [victory, defeat]) {
+    assert.deepEqual(wave.chunks, ['fmt ', 'data']);
+    assert.ok(wave.duration >= 1.5 && wave.duration <= 2.2);
+    assert.ok(wave.peak >= .3 && wave.peak <= .6, 'la composition garde de la marge avant écrêtage');
+    assert.ok(wave.energy / wave.duration >= .005, 'la mélodie conserve un signal réellement audible');
+    assert.equal(wave.samples[0], 0);
+    assert.equal(wave.samples.at(-1), 0);
+  }
+  assert.ok(dominantFrequency(victory, .82, .04) > dominantFrequency(victory, .06) * 1.5);
+  assert.ok(dominantFrequency(defeat, 1.04) < dominantFrequency(defeat, .06) * .8);
+});
+
+test('audio : annoncer un résultat joue une seule source complète, sans activation implicite', async () => {
+  const { player, state } = harness();
+  assert.equal(player.result('victory'), false);
+  assert.equal(player.result('defeat'), false);
+  assert.equal(state.contexts.length, 0);
+  assert.equal(state.requests.length, 0);
+  await player.unlock();
+  for (const value of ['draw', '', null, undefined, {}, true]) assert.equal(player.result(value), false);
+  assert.equal(player.result('victory'), true);
+  assert.equal(state.sources.length, 1);
+  const melody = state.sources[0];
+  assert.equal(melody.buffer.asset, SOUND_ASSETS.victory);
+  assert.deepEqual(melody.startArgs, []);
+  assert.equal(melody.playbackRate.value, 1);
+  assert.equal(state.gains[1].gain.value, .75);
+  assert.equal(player.result('victory'), false, 'un même résultat déjà en cours ne se superpose pas');
+  assert.equal(state.sources.length, 1);
+  melody.finish();
+  assert.equal(melody.connected, false);
+  assert.equal(melody.target.connected, false);
+  assert.equal(player.result('defeat'), true);
+  assert.equal(state.sources[1].buffer.asset, SOUND_ASSETS.defeat);
+  assert.equal(state.gains[2].gain.value, .7);
+});
+
+test('audio : une nouvelle mélodie remplace la précédente sans les faire jouer ensemble', async () => {
+  const { player, state } = harness();
+  await player.unlock();
+  assert.equal(player.result('victory'), true);
+  assert.equal(player.result('defeat'), true);
+  assert.equal(state.sources.length, 2);
+  assert.equal(state.sources[0].stopped, true);
+  assert.equal(state.sources[0].connected, false);
+  assert.equal(state.sources[0].onended, null);
+  assert.equal(state.sources[1].stopped, false);
+});
+
+test('audio : un résultat prend une voix de rotation et reste protégé des clics ordinaires', async () => {
+  const { player, state } = harness();
+  await player.unlock();
+  for (let index = 0; index < 5; index++) {
+    state.time += 150;
+    player.turn(12);
+  }
+  assert.equal(player.result('victory'), true);
+  assert.equal(state.sources.length, 6);
+  assert.equal(state.sources[0].stopped, true);
+  assert.equal(state.sources.filter(source => !source.stopped).length, 5);
+  const melody = state.sources[5];
+  player.detent();
+  assert.equal(state.sources.length, 7);
+  assert.equal(melody.stopped, false);
+  assert.equal(state.sources.filter(source => !source.stopped).length, 5);
+  player.stop();
+  assert.equal(melody.stopped, true);
+});
+
+test('audio : masque et sourdine arrêtent le résultat sans le reprendre après réactivation', async () => {
+  for (const interruption of ['mask', 'mute']) {
+    const { player, state } = harness();
+    await player.unlock();
+    assert.equal(player.result('victory'), true);
+    const melody = state.sources[0];
+    if (interruption === 'mask') player.stop();
+    else player.setEnabled(false);
+    assert.equal(melody.stopped, true);
+    assert.equal(melody.connected, false);
+    assert.equal(melody.onended, null);
+    assert.equal(player.result('defeat'), false);
+    player.setEnabled(true);
+    await player.unlock();
+    assert.equal(state.sources.length, 1, 'aucun verdict sonore n’est mis en attente');
+    assert.equal(player.result('defeat'), true, 'une nouvelle annonce explicite peut être jouée');
+  }
+});
+
+test('audio : un résultat pendant chargement ou reprise refusée n’est jamais différé', async () => {
+  for (const gateName of ['fetchGate', 'resumeGate']) {
+    const gate = deferred();
+    const { player, state } = harness({ [gateName]: gate });
+    const pending = player.unlock();
+    assert.equal(player.result('victory'), false);
+    gate.resolve();
+    await pending;
+    assert.equal(state.sources.length, 0);
+    assert.equal(player.result('defeat'), true);
+    state.contexts[0].state = 'interrupted';
+    const resumes = state.resumeStates.length;
+    assert.equal(player.result('victory'), false);
+    assert.equal(state.resumeStates.length, resumes, 'un résultat ne débloque jamais lui-même le navigateur');
+  }
+});
+
+test('audio : un véritable start refusé retourne false pour les mélodies de résultat', async () => {
+  const { player, state } = harness({ startError: true });
+  await player.unlock();
+  assert.equal(player.result('victory'), false);
+  assert.equal(player.result('defeat'), false);
+  assert.equal(state.sources.length, 0);
+  assert.equal(state.gains.slice(1).every(gain => !gain.connected), true);
 });

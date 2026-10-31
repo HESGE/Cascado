@@ -1,23 +1,28 @@
-// Kenney CC0 recordings, served locally. See docs/SONS-LIBRES.md.
+// Local CC0 recordings and original procedural sounds. See docs/SONS-LIBRES.md.
 // The caller supplies visible effects or anonymous opponent falls; this module
 // never reads the game state or schedules sounds for a hidden screen.
 export const SOUND_AVAILABLE = true;
 // The requested restoration starts with sound on once, then keeps new choices.
 export const SOUND_PREFERENCE_KEY = 'ddc-sound-v2';
 export const SOUND_ASSETS = Object.freeze({
-  wheel: new URL('../assets/audio/slide.wav', import.meta.url).href,
+  wheel: new URL('../assets/audio/safe-tick.wav', import.meta.url).href,
   detent: new URL('../assets/audio/wheel.wav', import.meta.url).href,
   slide: new URL('../assets/audio/slide.wav', import.meta.url).href,
   drop: new URL('../assets/audio/drop.wav', import.meta.url).href,
+  victory: new URL('../assets/audio/victory.wav', import.meta.url).href,
+  defeat: new URL('../assets/audio/defeat.wav', import.meta.url).href,
 });
 
 const SETTINGS = {
-  // Use only the textured tail of the slide recording, away from its impact.
-  wheel: { interval: 90, travel: 12, gain: 0.6, offset: 0.11, duration: 0.11, cutoff: 1600, attack: 0.012, release: 0.028 },
+  wheel: { interval: 90, travel: 12, gain: 0.12 },
   detent: { interval: 140, gain: 1, rate: 0.82 },
   slide: { interval: 80, gain: 0.55 },
   drop: { interval: 80, gain: 0.85 },
+  victory: { interval: 0, gain: 0.75 },
+  defeat: { interval: 0, gain: 0.7 },
 };
+
+const isResult = kind => kind === 'victory' || kind === 'defeat';
 
 /** Small, optional sound layer: no event queue, timers or delayed playback. */
 export function createSoundPlayer(options = {}) {
@@ -184,11 +189,24 @@ export function createSoundPlayer(options = {}) {
     if (time - (lastPlayed.get(kind) ?? -Infinity) < settings.interval) return false;
     // Leave a short gap after the stronger alignment click, too.
     if (kind === 'wheel' && time - (lastPlayed.get('detent') ?? -Infinity) < SETTINGS.detent.interval) return false;
+    if (isResult(kind)) {
+      if ([...active].some(voice => voice.kind === kind)) return false;
+      // A newly announced result replaces an older melody, never layers it.
+      for (const voice of active) {
+        if (!isResult(voice.kind)) continue;
+        voice.source.onended = null;
+        try { voice.source.stop(); voice.source.disconnect(); voice.gain.disconnect(); } catch { /* Optional audio. */ }
+        active.delete(voice);
+      }
+    }
     // A press may cross several gates, but sound never accumulates in a queue.
     if (active.size >= 5) {
-      if (kind !== 'detent') return false;
-      // The alignment click has priority over an older motion sound.
-      const voice = [...active].find(item => item.kind === 'wheel') ?? active.values().next().value;
+      if (kind !== 'detent' && !isResult(kind)) return false;
+      // Alignments and announced results take priority over motion, while an
+      // already playing result is protected from ordinary game feedback.
+      const voice = [...active].find(item => item.kind === 'wheel')
+        ?? [...active].find(item => !isResult(item.kind));
+      if (!voice) return false;
       voice.source.onended = null;
       try { voice.source.stop(); voice.source.disconnect(); voice.filter?.disconnect(); voice.gain.disconnect(); } catch { /* Optional audio. */ }
       active.delete(voice);
@@ -199,38 +217,17 @@ export function createSoundPlayer(options = {}) {
       const gain = context.createGain();
       source.buffer = buffers.get(kind);
       if (source.playbackRate) source.playbackRate.value = settings.rate ?? 1;
-      let filter = null;
-      let duration = null;
-      if (kind === 'wheel') {
-        duration = Math.min(settings.duration, Math.max(0, source.buffer.duration - settings.offset));
-        if (!duration) return false;
-        const start = context.currentTime;
-        // A soft friction burst has neither the attack nor the bright snap of
-        // the alignment clip. All ramps belong to this immediate voice only.
-        gain.gain.setValueAtTime(0, start);
-        gain.gain.linearRampToValueAtTime(settings.gain, start + settings.attack);
-        gain.gain.setValueAtTime(settings.gain, start + Math.max(settings.attack, duration - settings.release));
-        gain.gain.linearRampToValueAtTime(0, start + duration);
-        if (context.createBiquadFilter) {
-          filter = context.createBiquadFilter();
-          filter.type = 'lowpass';
-          filter.frequency.value = settings.cutoff;
-          filter.Q.value = 0.6;
-        }
-      } else gain.gain.value = settings.gain;
-      source.connect(filter ?? gain);
-      if (filter) filter.connect(gain);
+      gain.gain.value = settings.gain;
+      source.connect(gain);
       gain.connect(master);
-      voice = { source, filter, gain, kind };
+      voice = { source, gain, kind };
       source.onended = () => {
         active.delete(voice);
         source.disconnect();
-        filter?.disconnect();
         gain.disconnect();
       };
       active.add(voice);
-      if (kind === 'wheel') source.start(context.currentTime, settings.offset, duration);
-      else source.start();
+      source.start();
       lastPlayed.set(kind, time);
       return true;
     } catch {
@@ -291,6 +288,7 @@ export function createSoundPlayer(options = {}) {
     detent() { rotationTravel = 0; play('detent'); },
     slide() { play('slide'); },
     drop() { play('drop'); },
+    result(kind) { return isResult(kind) ? play(kind) : false; },
     stop() { unlocked = false; stop(); },
   };
 }

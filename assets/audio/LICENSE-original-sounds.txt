@@ -1,0 +1,16 @@
+Original procedural audio for Cascado
+
+Files: safe-tick.wav, victory.wav, defeat.wav
+Generator: scripts/generate-sounds.mjs
+
+These sounds are original procedural synthesis and short, simple compositions
+created for this project. No third-party recordings, samples or musical scores
+were used. Rebuilding the generator produces the same PCM audio without metadata.
+
+To the extent possible under law, the project contributors have waived all
+copyright and related or neighboring rights to these three sounds under
+CC0 1.0 Universal: https://creativecommons.org/publicdomain/zero/1.0/
+No attribution is required.
+
+The pre-existing wheel.wav, slide.wav and drop.wav recordings remain covered by
+their separate Kenney license files in this directory.

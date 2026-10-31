@@ -611,3 +611,19 @@ Validation :
 - Capture locale : `output/recette/cascado-v1.34-test-son.png`. Les appels ont été validés sur ordinateur ; cette recette ne prouve pas qu’un haut-parleur d’iPhone physique est audible.
 
 La course corrigée est un défaut constaté du logiciel, sans preuve qu’elle soit l’unique cause du signalement sur le téléphone. Le mode silencieux et certains problèmes de reprise Web Audio/PWA sont [documentés par WebKit](https://bugs.webkit.org/show_bug.cgi?id=237322), avec des cas de [contexte actif mais silencieux](https://bugs.webkit.org/show_bug.cgi?id=291892). L’amorce muette ne contourne pas à elle seule le mode silencieux des anciens iOS. Aucun contournement par boucle média permanente n’est ajouté. La version visible à l’accueil est **1.34**.
+
+## Évolution v1.35 — roue feutrée et mélodies de résultat (31 octobre 2026)
+
+La roue utilise un nouveau clic mécanique bref, façon cadran de coffre-fort, composé par synthèse et placé sous CC0. Il dure environ 32 ms, avec un gain de 0,12 avant le volume général de 0,30. Son énergie par émission représente environ 10,5 % de l’ancien frottement filtré ; cette mesure ne préjuge pas du volume perçu sur chaque appareil. Le rythme lié à la vitesse, le clic net du passage réellement ouvert sur la face autorisée et les bruits des roues et des jetons adverses sont conservés. Les deux nouvelles compositions de résultat sont une phrase ascendante de 2,10 secondes pour la victoire et une phrase descendante de 1,85 seconde pour la défaite. Le générateur déterministe et la licence sont inclus dans le dépôt ; les WAV ne contiennent aucune métadonnée personnelle.
+
+La mélodie ne démarre qu’après la première transition enregistrée vers le résultat révélé, après son affichage. Elle suit le joueur humain contre l’IA, quelle que soit sa place, ou le destinataire à deux humains. Aucun son ne trahit le verdict pendant le plateau ou le passage du téléphone. Rechargement, reprise d’un résultat déjà révélé et retour des statistiques ne rejouent pas la musique. Les séries IA restent silencieuses entre les parties et jouent uniquement au bilan final décisif avec plateau. Égalité, Full et simulation sans plateau restent silencieux. Une mélodie occupe une seule voix ; sourdine et interruption l’arrêtent, sans lecture différée si l’audio n’est pas prêt.
+
+Validation :
+
+- Suite complète : **672 tests, 657 réussis, zéro échec, 15 ignorés** (intégrations navigateur/IndexedDB optionnelles). Suite ciblée : **175 tests, 171 réussis, zéro échec, 4 ignorés**. Une revue indépendante confirme aussi **87 tests audio et résultat réussis sur 87**.
+- Les tests vérifient les fichiers PCM, les durées, les niveaux, le contour des mélodies, les annulations audio et la priorité des voix. Les tests d’intégration exécutent les fonctions réelles de révélation, de routage et de série, avec les différentes perspectives humaines, la persistance, les interruptions et les reprises.
+- Navigateur intégré, **414 × 715**, sur origine locale isolée : compteur des vrais démarrages Web Audio à **0 victoire / 0 défaite** avant révélation ; **1 / 0** après une victoire humaine, toujours **1 / 0** après statistiques et retour ; **0 / 1** après une défaite humaine. La reprise d’un résultat déjà révélé reste à **0 / 0**. Aucune erreur ou alerte de console constatée.
+- Captures locales : `output/recette/cascado-v1.35-victoire.png` et `output/recette/cascado-v1.35-defaite.png`. Le module et la page instrumentés sont temporaires et retirés du build avant publication. Les démarrages ont été contrôlés sur ordinateur ; le timbre et le niveau sur un iPhone physique n’ont pas été écoutés pendant cette recette.
+- `npm run check`, `npm run build` et le contrôle des espaces du diff réussissent. Le cache hors ligne inclut les trois nouveaux sons, leur licence et le module de choix du résultat.
+
+La version visible à l’accueil est **1.35**.

@@ -1,0 +1,21 @@
+{
+  "id": "./",
+  "name": "Cascado",
+  "short_name": "Cascado",
+  "description": "Un duel mécanique à deux sur un seul téléphone. Tourne les roues et libère tes deux séries de 1 à 5 dans l’ordre.",
+  "lang": "fr",
+  "dir": "ltr",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#F5F3ED",
+  "theme_color": "#173E50",
+  "categories": ["games"],
+  "icons": [
+    { "src": "./icons/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" },
+    { "src": "./icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "./icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "./icons/maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

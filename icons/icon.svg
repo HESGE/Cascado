@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+  <title>Cascado</title>
+  <defs>
+    <linearGradient id="blue" x2="0" y2="1"><stop stop-color="#187895"/><stop offset="1" stop-color="#173E50"/></linearGradient>
+    <mask id="wheel1"><circle cx="256" cy="150" r="40" fill="white"/><circle cx="278" cy="180" r="12" fill="black"/></mask>
+    <mask id="wheel2"><circle cx="304" cy="238" r="48" fill="white"/><circle cx="343" cy="221" r="12" fill="black"/><circle cx="300" cy="280" r="12" fill="black"/><circle cx="270" cy="213" r="12" fill="black"/></mask>
+    <mask id="wheel3"><circle cx="214" cy="285" r="41" fill="white"/><circle cx="239" cy="261" r="12" fill="black"/><circle cx="189" cy="309" r="12" fill="black"/></mask>
+    <mask id="wheel4"><circle cx="312" cy="343" r="54" fill="white"/><circle cx="312" cy="295" r="13" fill="black"/><circle cx="360" cy="343" r="13" fill="black"/><circle cx="312" cy="391" r="13" fill="black"/><circle cx="264" cy="343" r="13" fill="black"/></mask>
+    <mask id="wheel5"><circle cx="197" cy="383" r="60" fill="white"/><circle cx="197" cy="329" r="13" fill="black"/><circle cx="248" cy="366" r="13" fill="black"/><circle cx="229" cy="427" r="13" fill="black"/><circle cx="165" cy="427" r="13" fill="black"/><circle cx="146" cy="366" r="13" fill="black"/></mask>
+  </defs>
+  <path fill="url(#blue)" d="M0 0h512v512H0z"/>
+  <g fill="#F5F3ED">
+    <circle cx="256" cy="150" r="40" mask="url(#wheel1)"/>
+    <circle cx="304" cy="238" r="48" mask="url(#wheel2)"/>
+    <circle cx="214" cy="285" r="41" mask="url(#wheel3)"/>
+    <circle cx="312" cy="343" r="54" mask="url(#wheel4)"/>
+    <circle cx="197" cy="383" r="60" mask="url(#wheel5)"/>
+  </g>
+  <g fill="#BFD3D0"><circle cx="256" cy="150" r="9"/><circle cx="304" cy="238" r="10"/><circle cx="214" cy="285" r="9"/><circle cx="312" cy="343" r="11"/><circle cx="197" cy="383" r="12"/></g>
+  <g fill="#F5AC45"><circle cx="278" cy="181" r="10"/><circle cx="239" cy="261" r="10"/><circle cx="165" cy="427" r="11"/></g>
+</svg>

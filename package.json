@@ -1,0 +1,17 @@
+{
+  "name": "cascado",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Cascado, deux joueurs sur un smartphone, hors ligne.",
+  "scripts": {
+    "dev": "node scripts/serve.mjs",
+    "start": "node scripts/serve.mjs",
+    "build": "node scripts/build.mjs",
+    "test": "node --test tests/*.test.js",
+    "check": "node scripts/check.mjs",
+    "test:browser": "node tests/browser.mjs",
+    "simulate": "node scripts/simulate.mjs"
+  },
+  "engines": { "node": ">=20" }
+}

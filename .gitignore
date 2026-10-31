@@ -1,0 +1,15 @@
+dist/
+node_modules/
+.DS_Store
+/output/
+/tmp/
+/docs/references/
+/.openai/
+/.codex/
+/.agents/
+/.aws/
+.env
+.env.*
+!.env.example
+*.log
+/qa-*.html

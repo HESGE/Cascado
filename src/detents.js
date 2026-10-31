@@ -7,9 +7,10 @@ export const ROTATION_STEP = 6;
 const SAME_STOP = 1e-7;
 
 const DETENTS = new Map();
-function buildDetents(geometryVersion) { return wheelsFor(geometryVersion).map(wheel => {
+const FACE_DETENTS = new Map();
+function buildDetents(geometryVersion, faces = [0, 1]) { return wheelsFor(geometryVersion).map(wheel => {
   const positions = [];
-  for (const face of [0, 1]) {
+  for (const face of faces) {
     const localGates = gates(face).flatMap(gate => [
       ...(gate.from === wheel.id ? [gate.sourceAngle] : []),
       ...(gate.to === wheel.id ? [gate.targetAngle] : []),
@@ -34,6 +35,16 @@ export function mechanicalDetents(wheelId, geometryVersion = GEOMETRY_VERSION) {
   if(!Number.isInteger(wheelId) || wheelId < 1 || wheelId > 5) return NO_DETENTS;
   if(!DETENTS.has(geometryVersion)) DETENTS.set(geometryVersion,buildDetents(geometryVersion));
   return DETENTS.get(geometryVersion)[wheelId-1];
+}
+
+/** Own-face alignment cues share the common mechanism's physical angles,
+ * without changing its stops or reading any token state. */
+export function faceMechanicalDetents(wheelId, faceIndex, geometryVersion = GEOMETRY_VERSION) {
+  if (faceIndex !== 0 && faceIndex !== 1) throw new RangeError('Face inconnue.');
+  if (!Number.isInteger(wheelId) || wheelId < 1 || wheelId > 5) return NO_DETENTS;
+  const key = `${geometryVersion}:${faceIndex}`;
+  if (!FACE_DETENTS.has(key)) FACE_DETENTS.set(key, buildDetents(geometryVersion, [faceIndex]));
+  return FACE_DETENTS.get(key)[wheelId - 1];
 }
 
 /** Advance up to six degrees, stopping on the first exact gate encountered.

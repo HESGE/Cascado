@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mechanicalDetents } from '../src/detents.js';
-import { LEGACY_GEOMETRY_VERSION, SUPPORTED_GEOMETRY_VERSIONS } from '../src/geometry.js';
+import { mechanicalDetents, faceMechanicalDetents } from '../src/detents.js';
+import { LEGACY_GEOMETRY_VERSION, SUPPORTED_GEOMETRY_VERSIONS, angularDistance } from '../src/geometry.js';
 import { magnetizeAngle, createMagneticDrag, advanceMagneticDrag } from '../src/magnet.js';
 
 const close = (actual, expected, epsilon = 1e-8) => assert.ok(
@@ -380,4 +380,88 @@ test('a plateau entry can increment the signal even when its rendered delta roun
   assert.equal(delta, 0);
   assert.equal(state.arrivalCount, 1);
   close(state.activeStop, angle);
+});
+
+test('face-filtered arrivals signal own openings and keep exclusively opposing alignments quiet', () => {
+  let ownCases = 0;
+  let oppositeCases = 0;
+  for (const version of SUPPORTED_GEOMETRY_VERSIONS) for (let wheelId = 1; wheelId <= 5; wheelId += 1) {
+    const stops = mechanicalDetents(wheelId, version);
+    for (const face of [0, 1]) {
+      const own = faceMechanicalDetents(wheelId, face, version);
+      for (let index = 0; index < stops.length; index += 1) for (const direction of [-1, 1]) {
+        const field = fieldAt(wheelId, index, version);
+        const belongs = own.some(stop => angularDistance(stop, field.angle) <= 1e-7);
+        const initial = field.angle - direction * field.radius * .9;
+        const state = createMagneticDrag(wheelId, initial, version, face);
+        const union = createMagneticDrag(wheelId, initial, version);
+        close(advanceMagneticDrag(state, field.angle - initial), advanceMagneticDrag(union, field.angle - initial));
+        assert.equal(union.arrivalCount, 1);
+        assert.equal(state.arrivalCount, belongs ? 1 : 0);
+        assert.equal(state.activeStop === null, !belongs);
+        if (belongs) ownCases++; else oppositeCases++;
+      }
+    }
+  }
+  assert.ok(ownCases > 0 && oppositeCases > 0);
+});
+
+test('face filtering preserves the exact mechanical deltas through all profiles, turns and reversals', () => {
+  for (const version of SUPPORTED_GEOMETRY_VERSIONS) for (let wheelId = 1; wheelId <= 5; wheelId += 1) {
+    for (const face of [0, 1]) {
+      const state = createMagneticDrag(wheelId, 359.123, version, face);
+      const union = createMagneticDrag(wheelId, 359.123, version);
+      for (const key of ['faces', 'queue', 'slots', 'exited', 'verdict', 'events']) {
+        Object.defineProperty(state, key, { get() { assert.fail(`Private state read: ${key}`); } });
+      }
+      for (const delta of [0, .001, .1, 1, 9, 360, -720, .02, 1083.5, -25, -755, 720]) {
+        assert.equal(advanceMagneticDrag(state, delta), advanceMagneticDrag(union, delta));
+        assert.equal(state.rawAngle, union.rawAngle);
+        assert.equal(state.appliedAngle, union.appliedAngle);
+      }
+    }
+  }
+});
+
+test('filtered coarse gestures and fine tracking count the same own arrivals over three revolutions', () => {
+  for (const version of SUPPORTED_GEOMETRY_VERSIONS) for (let wheelId = 1; wheelId <= 5; wheelId += 1) {
+    const stops = mechanicalDetents(wheelId, version);
+    const gap = stops.map((angle, index) => ({ angle, next: stops[index + 1] ?? stops[0] + 360 }))
+      .find(({ angle, next }) => next - angle > 10);
+    assert.ok(gap);
+    const start = (gap.angle + gap.next) / 2;
+    for (const face of [0, 1]) for (const direction of [-1, 1]) {
+      const coarse = createMagneticDrag(wheelId, start, version, face);
+      const fine = createMagneticDrag(wheelId, start, version, face);
+      advanceMagneticDrag(coarse, direction * 1080);
+      for (let sample = 0; sample < 2160; sample += 1) advanceMagneticDrag(fine, direction * .5);
+      assert.equal(coarse.arrivalCount, faceMechanicalDetents(wheelId, face, version).length * 3);
+      assert.equal(coarse.arrivalCount, fine.arrivalCount);
+      assert.equal(coarse.activeStop, null);
+      assert.equal(fine.activeStop, null);
+      close(coarse.appliedAngle, fine.appliedAngle);
+    }
+  }
+});
+
+test('an own-face plateau stays quiet when held or jittered until the full field is left', () => {
+  for (const version of SUPPORTED_GEOMETRY_VERSIONS) for (let wheelId = 1; wheelId <= 5; wheelId += 1) {
+    for (const face of [0, 1]) {
+      const angle = faceMechanicalDetents(wheelId, face, version)[0];
+      const index = mechanicalDetents(wheelId, version).findIndex(stop => angularDistance(stop, angle) <= 1e-7);
+      const field = fieldAt(wheelId, index, version);
+      const state = createMagneticDrag(wheelId, field.angle, version, face);
+      for (let repetition = 0; repetition < 5; repetition += 1) {
+        for (const offset of [0, field.plateau * 1.1, -field.plateau * 1.1, field.radius * .95, 0]) {
+          advanceMagneticDrag(state, field.angle + offset - state.rawAngle);
+          assert.equal(state.arrivalCount, 0);
+        }
+      }
+      advanceMagneticDrag(state, field.angle + field.radius + .001 - state.rawAngle);
+      advanceMagneticDrag(state, field.angle - state.rawAngle);
+      assert.equal(state.arrivalCount, 1);
+      close(state.activeStop, field.angle);
+    }
+  }
+  for (const face of [-1, 2, '0', null, NaN]) assert.throws(() => createMagneticDrag(1, 0, undefined, face), RangeError);
 });

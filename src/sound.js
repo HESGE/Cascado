@@ -1,5 +1,6 @@
 // Kenney CC0 recordings, served locally. See docs/SONS-LIBRES.md.
-// Call only for the visible face; this module never reads the game state.
+// The caller supplies visible effects or anonymous opponent falls; this module
+// never reads the game state or schedules sounds for a hidden screen.
 export const SOUND_AVAILABLE = true;
 // The requested restoration starts with sound on once, then keeps new choices.
 export const SOUND_PREFERENCE_KEY = 'ddc-sound-v2';
@@ -11,7 +12,7 @@ export const SOUND_ASSETS = Object.freeze({
 });
 
 const SETTINGS = {
-  wheel: { interval: 72, gain: 0.35 },
+  wheel: { interval: 150, gain: 0.35 },
   detent: { interval: 140, gain: 1, rate: 0.82 },
   slide: { interval: 80, gain: 0.55 },
   drop: { interval: 80, gain: 0.85 },
@@ -106,6 +107,8 @@ export function createSoundPlayer(options = {}) {
     const time = now();
     const settings = SETTINGS[kind];
     if (time - (lastPlayed.get(kind) ?? -Infinity) < settings.interval) return;
+    // Leave a short gap after the stronger alignment click, too.
+    if (kind === 'wheel' && time - (lastPlayed.get('detent') ?? -Infinity) < SETTINGS.wheel.interval) return;
     // A press may cross several gates, but sound never accumulates in a queue.
     if (active.size >= 5) {
       if (kind !== 'detent') return;

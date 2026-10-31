@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { ROTATION_STEP, mechanicalDetents, rotationDetentDelta } from '../src/detents.js';
+import { ROTATION_STEP, mechanicalDetents, faceMechanicalDetents, rotationDetentDelta } from '../src/detents.js';
 import { createGame, rotate, endTurn } from '../src/engine.js';
 import {
   GEOMETRY_VERSION, SUPPORTED_GEOMETRY_VERSIONS, WHEELS, inputGates, OUTPUT_GATE,
@@ -48,6 +48,33 @@ test('mechanical stops contain every entrance, exit and link on both faces', () 
       }
     }
   }
+});
+
+test('each face cue list contains exactly its own physical gate alignments and leaves the union intact', () => {
+  for (const version of SUPPORTED_GEOMETRY_VERSIONS) for (const wheel of wheelsFor(version)) {
+    const shared = mechanicalDetents(wheel.id, version);
+    const lists = [0, 1].map(face => {
+      const expected = gates(face).flatMap(gate => [
+        ...(gate.from === wheel.id ? [gate.sourceAngle] : []),
+        ...(gate.to === wheel.id ? [gate.targetAngle] : []),
+      ]);
+      if (wheel.id === 1) expected.push(...inputGates(version));
+      if (wheel.id === 5) expected.push(OUTPUT_GATE);
+      const physical = expected.flatMap(gate => Array.from({ length: wheel.notches },
+        (_, notch) => physicalAngleFor(face, wheel.id, notch, gate, version)));
+      const stops = faceMechanicalDetents(wheel.id, face, version);
+      assert.ok(Object.isFrozen(stops));
+      assert.ok(stops.every((stop, index) => stop >= 0 && stop < 360 && (index === 0 || stop > stops[index - 1] + EPSILON)));
+      for (const stop of stops) assert.ok(physical.some(angle => angularDistance(angle, stop) <= EPSILON));
+      for (const angle of physical) assert.ok(stops.some(stop => angularDistance(angle, stop) <= EPSILON));
+      return stops;
+    });
+    assert.equal(mechanicalDetents(wheel.id, version), shared, 'the common mechanism cache is untouched');
+    for (const stop of shared) assert.ok(lists.flat().some(angle => angularDistance(angle, stop) <= EPSILON));
+    for (const stop of lists.flat()) assert.ok(shared.some(angle => angularDistance(angle, stop) <= EPSILON));
+  }
+  for (const viewer of [-1, 2, '0', undefined, null, NaN]) assert.throws(() => faceMechanicalDetents(1, viewer), RangeError);
+  for (const wheel of [0, 6, '1', NaN]) assert.deepEqual(faceMechanicalDetents(wheel, 0), []);
 });
 
 test('a revolution from neutral reaches every exact stop in both directions without stalling', () => {

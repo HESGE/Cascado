@@ -35,3 +35,17 @@ export function visibleTransfers(batches, faceIndex) {
     .filter(transfer => transfer.face === faceIndex)
     .map(({ token, from, to }) => ({ token, from: { ...from }, to: { ...to }, wheel: batch.wheel, angle: batch.angle })));
 }
+
+/** One anonymous cue for newly supplied opponent falls, including internal
+ * ones. Detailed transfers stay private and never enter the animation layer. */
+export function hasOpponentFall(batches, viewerFaceIndex) {
+  if (viewerFaceIndex !== 0 && viewerFaceIndex !== 1) throw new RangeError('Face inconnue.');
+  const isWheel = location => Number.isInteger(location?.wheel) && location.wheel >= 1 && location.wheel <= 5;
+  return batches.some(batch => batch.transfers.some(transfer => {
+    if (transfer.face !== 1 - viewerFaceIndex) return false;
+    const fromWheel = isWheel(transfer.from);
+    const toWheel = isWheel(transfer.to);
+    return (transfer.from?.queue === true && toWheel)
+      || (fromWheel && (toWheel || transfer.to?.exited === true));
+  }));
+}

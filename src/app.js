@@ -3,7 +3,7 @@ import { renderBoard, wheelCenter, seriesAppearance } from './board.js';
 import { animateBoard, cancelBoardMotion, boardMotionRemaining, retimeBoardMotion, finishBoardMotion } from './motion.js';
 import { createSoundPlayer, SOUND_PREFERENCE_KEY } from './sound.js';
 import { loadGame, saveGame, clearGame, loadStatistics, resetStatistics } from './storage.js';
-import { newSession, recipientOf, transmit, acceptReveal, visibleTransfers } from './flow.js';
+import { newSession, recipientOf, transmit, acceptReveal, visibleTransfers, hasOpponentFall } from './flow.js';
 import { GEOMETRY_VERSION } from './geometry.js';
 import { installViewportLock } from './viewport-lock.js';
 import { getOpponentProgress } from './opponent-progress.js';
@@ -204,7 +204,7 @@ function renderHome() {
     <div class="install-status" id="install-status">${offlineStatus()}</div>
     <button class="text-button" data-action="install">Installer sur mon téléphone</button>
     ${updateAvailable ? '<button class="secondary" data-action="update">Une mise à jour est disponible</button>' : ''}
-    <p class="muted local-note">Sans compte · Partie enregistrée sur cet appareil<br><span data-release>Version 1.30</span></p></section>`;
+    <p class="muted local-note">Sans compte · Partie enregistrée sur cet appareil<br><span data-release>Version 1.31</span></p></section>`;
 }
 
 
@@ -499,6 +499,13 @@ function refreshPlay(beforeView = null, events = [], directRotation = false) {
   paintAlignmentFeedback();
 }
 
+function soundOpponentFalls(newBatches, viewerFaceIndex) {
+  if (!boardVisible() || document.hidden || (mode === 'ai-play' && aiSpeedProfile(aiSpeed).full)) return;
+  // Only the presence of a new opponent cascade reaches audio. Its paths,
+  // token numbers and verdict never enter the displayed animation or timers.
+  if (hasOpponentFall(newBatches, viewerFaceIndex)) sound.drop();
+}
+
 function paintAlignmentFeedback() {
   app.querySelectorAll('[data-magnet-feedback]').forEach(node => node.remove());
   const id = alignmentFeedback.wheel;
@@ -534,9 +541,11 @@ function applyRotations(localDeltas, directRotation = false, magneticDrag = null
     if(magneticArrival)alignmentFeedback.pulse(selected);
     return false;
   }
-  const transfers=visibleTransfers(session.game.events.slice(firstNewEvent),session.game.active);
+  const newBatches=session.game.events.slice(firstNewEvent);
+  const transfers=visibleTransfers(newBatches,session.game.active);
   if (!magneticArrival) sound.turn();
   refreshPlay(before,transfers,directRotation);
+  soundOpponentFalls(newBatches,session.game.active);
   if(magneticArrival)alignmentFeedback.pulse(selected);
   persist({type:'rotation',wheel:selected,delta:steps.reduce((sum,delta)=>sum+delta,0),steps});
   return true;
@@ -656,7 +665,7 @@ app.addEventListener('pointerdown',event=>{
   const center=selectedCenterOnScreen();
   if(!center)return;
   surfacePress={kind:'pointer',source:event.pointerId,frame:0,deltas:[],
-    magnet:createMagneticDrag(selected,session.game.angles[selected-1],session.game.geometryVersion),
+    magnet:createMagneticDrag(selected,session.game.angles[selected-1],session.game.geometryVersion,session.game.active),
     gesture:createWheelGesture({x:center.x,y:center.y},{x:event.clientX,y:event.clientY})};
   app.setPointerCapture(event.pointerId);
   updatePlayUI();
@@ -845,17 +854,19 @@ async function runAITurn() {
         cancelAITurn();renderAIReady();return;
       }
       aiDirtyGame = game;
-      const transfers = visibleTransfers(game.events.slice(firstNewEvent), face);
+      const newBatches = game.events.slice(firstNewEvent);
+      const transfers = visibleTransfers(newBatches, face);
       if(!profile.full) sound.turn();
       if(transfers.length) app.dataset.aiPhase = 'falling';
       refreshPlay(before, transfers, true);
+      soundOpponentFalls(newBatches, face);
       if(time - lastSaved >= 150 || rotation.done || transfers.length) {
         await saveAIMovement();
         if(!current()) return;
         lastSaved = performance.now();
       }
-      // Only a displayed face can add a presentation pause. Hidden transfers
-      // cannot affect timing, feedback or the progression of the AI turn.
+      // Only displayed falls add a presentation pause. The requested anonymous
+      // opponent sound never changes the timing or progression of an AI turn.
       if(transfers.length) {
         if(!await waitForAI(300,generation,true) || !current()) return;
         app.dataset.aiPhase = 'rotating';
@@ -963,7 +974,7 @@ function renderRules() {
   app.innerHTML=`<section class="screen rules">${brand}<p class="eyebrow">LES RÈGLES</p><h1>Fais-les tomber.<br>Dans le bon ordre.</h1>
     <ol><li>Chacun possède dix jetons : une série de 1 à 5 à gauche et une autre à droite, distinguées par leur couleur et leur symbole.</li><li>À ton tour, choisis une roue et tourne-la lentement. Les deux faces bougent ensemble.</li><li>Tu peux t’arrêter, reprendre et changer de sens sur cette même roue.</li><li>La dernière roue jouée par l’adversaire est interdite. Exception : ton dernier jeton est encore dans la roue 5.</li><li>Pour gagner, sors les dix jetons en respectant l’ordre de 1 à 5 dans chaque série. Tu peux alterner les deux séries. Une sortie hors ordre dans une série fait perdre son propriétaire.</li><li>Contre une IA, appuie sur « Terminer mon tour » et garde le téléphone. À deux humains, appuie sur « Terminer et masquer », puis donne le téléphone au joueur indiqué. Il appuie une seule fois sur le bouton à son prénom pour afficher son plateau.</li></ol>
     ${session && tokenTotal(session.game.geometryVersion) === 5 ? '<p>Ta partie déjà commencée conserve une seule série de cinq jetons et une seule entrée. Pour cette partie, fais sortir les cinq jetons de 1 à 5 pour gagner.</p>' : ''}
-    <p>Pose le doigt sur une roue, maintiens-le et fais-le glisser autour de son centre pour la tourner. La roue suit ton mouvement, dans les deux sens, avec une légère aimantation près des alignements. Continue ton geste pour dépasser un alignement. Relâche pour t’arrêter ; garder le doigt immobile ne fait pas tourner. Si tu touches le moyeu, éloigne d’abord le doigt du centre puis poursuis ton geste. Au clavier, sélectionne une roue avec Entrée ou Espace, puis utilise les flèches gauche et droite pour avancer par crans assistés de 6° au maximum.</p><p>Pour faire tomber un jeton, aligne assez largement son ouverture avec une encoche libre de la roue du dessous. Un simple contact des bords ne suffit plus. Si la réception est fermée, prépare cette roue lors d’un autre tour. Les petits repères fixes indiquent les passages.</p><p>En bas du plateau, les jetons déjà arrivés de l’autre joueur apparaissent en transparence, avec son compteur. Ses jetons encore en jeu restent sur sa propre face.</p><p>Le bouton haut-parleur en haut du plateau active ou coupe les sons. Un clic confirme leur réactivation. Sur les anciens iPhone ou si aucun son ne sort, désactive le mode silencieux et monte le volume multimédia. Full et les simulations sans plateau restent silencieux.</p><p>Choisis Humain ou IA pour chaque joueur au début de la partie. Les IA ont trois niveaux : Facile, Normal et Difficile. Elles jouent sur cet appareil et ne voient que leur propre face. Contre une IA, ton plateau reste affiché : regarde les roues tourner pendant son tour, puis reprends la main directement. Le bouton « Duel automatique » de l’accueil prépare deux IA. Choisis leurs niveaux, le nombre de parties, les départs et l’affichage, puis lance la série : les IA jouent seules jusqu’au bilan des confrontations. Avec les départs variés, chaque position initiale est jouée deux fois en inversant le premier joueur ; avec les départs classiques, la même position est répétée. Sans plateau, seuls l’avancement et les scores s’affichent, à pleine vitesse. Avec le plateau, tu peux suivre les mouvements et régler la vitesse. Tu peux mettre la série en pause et reprendre quand tu veux. Le résultat est annoncé au passage normal de tour, même si la partie est déjà décidée.</p><p class="muted">Convention de cette adaptation : les sorties simultanées doivent former les prochains numéros consécutifs de chacune des séries concernées. Si des fins simultanées désignent des gagnants différents, la partie est nulle. Le calage des roues est estimé à partir de la vidéo du jeu original ; il ne constitue pas une reproduction exacte.</p>
+    <p>Pose le doigt sur une roue, maintiens-le et fais-le glisser autour de son centre pour la tourner. La roue suit ton mouvement, dans les deux sens, avec une légère aimantation près des alignements. Continue ton geste pour dépasser un alignement. Relâche pour t’arrêter ; garder le doigt immobile ne fait pas tourner. Si tu touches le moyeu, éloigne d’abord le doigt du centre puis poursuis ton geste. Au clavier, sélectionne une roue avec Entrée ou Espace, puis utilise les flèches gauche et droite pour avancer par crans assistés de 6° au maximum.</p><p>Pour faire tomber un jeton, aligne assez largement son ouverture avec une encoche libre de la roue du dessous. Un simple contact des bords ne suffit plus. Si la réception est fermée, prépare cette roue lors d’un autre tour. Les petits repères fixes indiquent les passages.</p><p>En bas du plateau, les jetons déjà arrivés de l’autre joueur apparaissent en transparence, avec son compteur. Ses jetons encore en jeu restent sur sa propre face.</p><p>Le bouton haut-parleur en haut du plateau active ou coupe les sons. Un clic confirme leur réactivation. Les clics de rotation sont espacés ; le clic fort d’alignement concerne ta face pendant ton tour. Tu entends aussi les chutes adverses, même sur la face cachée, avec un bruit générique. Sur les anciens iPhone ou si aucun son ne sort, désactive le mode silencieux et monte le volume multimédia. Full et les simulations sans plateau restent silencieux.</p><p>Choisis Humain ou IA pour chaque joueur au début de la partie. Les IA ont trois niveaux : Facile, Normal et Difficile. Elles jouent sur cet appareil et ne voient que leur propre face. Contre une IA, ton plateau reste affiché : regarde les roues tourner pendant son tour, puis reprends la main directement. Le bouton « Duel automatique » de l’accueil prépare deux IA. Choisis leurs niveaux, le nombre de parties, les départs et l’affichage, puis lance la série : les IA jouent seules jusqu’au bilan des confrontations. Avec les départs variés, chaque position initiale est jouée deux fois en inversant le premier joueur ; avec les départs classiques, la même position est répétée. Sans plateau, seuls l’avancement et les scores s’affichent, à pleine vitesse. Avec le plateau, tu peux suivre les mouvements et régler la vitesse. Tu peux mettre la série en pause et reprendre quand tu veux. Le résultat est annoncé au passage normal de tour, même si la partie est déjà décidée.</p><p class="muted">Convention de cette adaptation : les sorties simultanées doivent former les prochains numéros consécutifs de chacune des séries concernées. Si des fins simultanées désignent des gagnants différents, la partie est nulle. Le calage des roues est estimé à partir de la vidéo du jeu original ; il ne constitue pas une reproduction exacte.</p>
     <button class="primary" data-action="home">J’ai compris</button></section>`;
 }
 

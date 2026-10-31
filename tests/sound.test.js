@@ -109,13 +109,29 @@ test('audio : les crans rapides sont limités sans supprimer glissement et conta
   player.turn();
   state.time = 30; player.turn();
   assert.equal(state.sources.length, 1);
-  state.time = 100; player.turn();
+  state.time = 150; player.turn();
   assert.equal(state.sources.length, 2);
   player.slide(); player.drop();
   assert.equal(state.sources.length, 4, 'les trois familles restent indépendantes');
   state.sources.forEach(source => source.finish());
   assert.equal(state.sources.every(source => !source.connected), true);
   assert.equal(state.gains.slice(1).every(gain => !gain.connected), true);
+});
+
+test('audio : la rotation espace ses clics de 150 ms et laisse respirer le clic d’alignement', async () => {
+  const { player, state } = harness();
+  await player.unlock();
+  player.turn();
+  state.time = 149; player.turn();
+  assert.equal(state.sources.length, 1, 'pas de crépitement entre deux clics de rotation');
+  state.time = 150; player.turn();
+  assert.equal(state.sources.length, 2);
+  state.time = 160; player.detent();
+  assert.equal(state.sources.length, 3, 'un alignement reste prioritaire sur la rotation');
+  state.time = 300; player.turn();
+  assert.equal(state.sources.length, 3, 'le clic fort garde un court silence après lui');
+  state.time = 310; player.turn();
+  assert.equal(state.sources.length, 4);
 });
 
 test('audio : le masque coupe toutes les voix et exige un nouveau geste', async () => {
@@ -227,7 +243,7 @@ test('audio : le cran est plus net que la rotation, partage le clip local et ne 
 test('audio : un cran reste prioritaire à la limite des voix, sans lecture différée', async () => {
   const {player,state} = harness();
   await player.unlock();
-  for(let i=0;i<5;i++) { state.time+=100; player.turn(); }
+  for(let i=0;i<5;i++) { state.time+=150; player.turn(); }
   player.detent();
   assert.equal(state.sources.length,6);
   assert.equal(state.sources[0].stopped,true);

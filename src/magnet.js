@@ -1,9 +1,11 @@
 /** Gentle seating into fixed mechanical alignments, independent of a game. */
-import { mechanicalDetents } from './detents.js';
+import { mechanicalDetents, faceMechanicalDetents } from './detents.js';
+import { angularDistance } from './geometry.js';
 
 const MAX_RADIUS = 5;
 const MAX_PLATEAU = 1;
 const FIELDS = new Map();
+const FEEDBACK_FIELDS = new Map();
 
 function fieldsFor(wheelId, geometryVersion) {
   // Validate before stringifying the key: an invalid "1" must not reuse R1's field.
@@ -26,9 +28,19 @@ function liftedStop(field, rawAngle) {
   return field.angle + Math.round((rawAngle - field.angle) / 360) * 360;
 }
 
-function initialActiveStop(wheelId, rawAngle, geometryVersion) {
+function feedbackFieldsFor(wheelId, geometryVersion, faceIndex) {
+  const fields = fieldsFor(wheelId, geometryVersion);
+  if (faceIndex === undefined) return fields;
+  const ownStops = faceMechanicalDetents(wheelId, faceIndex, geometryVersion);
+  const key = `${geometryVersion ?? 'current'}:${wheelId}:${faceIndex}`;
+  if (!FEEDBACK_FIELDS.has(key)) FEEDBACK_FIELDS.set(key, fields.filter(field =>
+    ownStops.some(angle => angularDistance(angle, field.angle) <= 1e-7)));
+  return FEEDBACK_FIELDS.get(key);
+}
+
+function initialActiveStop(wheelId, rawAngle, geometryVersion, feedbackFaceIndex) {
   if (!Number.isFinite(rawAngle)) return null;
-  for (const field of fieldsFor(wheelId, geometryVersion)) {
+  for (const field of feedbackFieldsFor(wheelId, geometryVersion, feedbackFaceIndex)) {
     const stop = liftedStop(field, rawAngle);
     if (Math.abs(rawAngle - stop) <= field.plateau) return stop;
   }
@@ -40,11 +52,11 @@ function initialActiveStop(wheelId, rawAngle, geometryVersion) {
  * complete attraction field. Counting periodic entry boundaries avoids a loop
  * per revolution, including for a large coalesced movement. */
 function arrivalSignal(state, nextRaw) {
-  const fields = fieldsFor(state.wheelId, state.geometryVersion);
+  const fields = feedbackFieldsFor(state.wheelId, state.geometryVersion, state.feedbackFaceIndex);
   const start = state.rawAngle;
   const direction = Math.sign(nextRaw - start);
   const active = state.activeStop === undefined
-    ? initialActiveStop(state.wheelId, start, state.geometryVersion) : state.activeStop;
+    ? initialActiveStop(state.wheelId, start, state.geometryVersion, state.feedbackFaceIndex) : state.activeStop;
   const latch = Number.isFinite(active) ? fields.find(field => {
     const stop = liftedStop(field, start);
     return Math.abs(stop - active) < 1e-8 && Math.abs(start - stop) <= field.radius;
@@ -102,12 +114,15 @@ export function magnetizeAngle(wheelId, rawAngle, geometryVersion) {
   return rawAngle;
 }
 
-/** Starting or holding a drag never snaps an existing, possibly saved angle. */
-export function createMagneticDrag(wheelId, initialPhysicalAngle, geometryVersion) {
+/** Starting or holding a drag never snaps an existing, possibly saved angle.
+ * An optional face filters arrival cues only; attraction stays shared. */
+export function createMagneticDrag(wheelId, initialPhysicalAngle, geometryVersion, feedbackFaceIndex) {
+  if (feedbackFaceIndex !== undefined && feedbackFaceIndex !== 0 && feedbackFaceIndex !== 1) throw new RangeError('Face inconnue.');
   return {
     wheelId, rawAngle: initialPhysicalAngle, appliedAngle: initialPhysicalAngle,
     ...(geometryVersion === undefined ? {} : {geometryVersion}),
-    arrivalCount: 0, activeStop: initialActiveStop(wheelId, initialPhysicalAngle, geometryVersion),
+    ...(feedbackFaceIndex === undefined ? {} : {feedbackFaceIndex}),
+    arrivalCount: 0, activeStop: initialActiveStop(wheelId, initialPhysicalAngle, geometryVersion, feedbackFaceIndex),
   };
 }
 

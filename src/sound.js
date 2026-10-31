@@ -5,14 +5,15 @@ export const SOUND_AVAILABLE = true;
 // The requested restoration starts with sound on once, then keeps new choices.
 export const SOUND_PREFERENCE_KEY = 'ddc-sound-v2';
 export const SOUND_ASSETS = Object.freeze({
-  wheel: new URL('../assets/audio/wheel.wav', import.meta.url).href,
+  wheel: new URL('../assets/audio/slide.wav', import.meta.url).href,
   detent: new URL('../assets/audio/wheel.wav', import.meta.url).href,
   slide: new URL('../assets/audio/slide.wav', import.meta.url).href,
   drop: new URL('../assets/audio/drop.wav', import.meta.url).href,
 });
 
 const SETTINGS = {
-  wheel: { interval: 150, gain: 0.35 },
+  // Use only the textured tail of the slide recording, away from its impact.
+  wheel: { interval: 150, gain: 0.6, offset: 0.11, duration: 0.11, cutoff: 1600, attack: 0.012, release: 0.028 },
   detent: { interval: 140, gain: 1, rate: 0.82 },
   slide: { interval: 80, gain: 0.55 },
   drop: { interval: 80, gain: 0.85 },
@@ -58,7 +59,7 @@ export function createSoundPlayer(options = {}) {
     for (const voice of active) {
       voice.source.onended = null;
       try { voice.source.stop(); } catch { /* Already ended. */ }
-      try { voice.source.disconnect(); voice.gain.disconnect(); } catch { /* Optional audio. */ }
+      try { voice.source.disconnect(); voice.filter?.disconnect(); voice.gain.disconnect(); } catch { /* Optional audio. */ }
     }
     active.clear();
     releaseSession();
@@ -115,7 +116,7 @@ export function createSoundPlayer(options = {}) {
       // The alignment click has priority over an older motion sound.
       const voice = [...active].find(item => item.kind === 'wheel') ?? active.values().next().value;
       voice.source.onended = null;
-      try { voice.source.stop(); voice.source.disconnect(); voice.gain.disconnect(); } catch { /* Optional audio. */ }
+      try { voice.source.stop(); voice.source.disconnect(); voice.filter?.disconnect(); voice.gain.disconnect(); } catch { /* Optional audio. */ }
       active.delete(voice);
     }
     try {
@@ -123,17 +124,38 @@ export function createSoundPlayer(options = {}) {
       const gain = context.createGain();
       source.buffer = buffers.get(kind);
       if (source.playbackRate) source.playbackRate.value = settings.rate ?? 1;
-      gain.gain.value = settings.gain;
-      source.connect(gain);
+      let filter = null;
+      let duration = null;
+      if (kind === 'wheel') {
+        duration = Math.min(settings.duration, Math.max(0, source.buffer.duration - settings.offset));
+        if (!duration) return;
+        const start = context.currentTime;
+        // A soft friction burst has neither the attack nor the bright snap of
+        // the alignment clip. All ramps belong to this immediate voice only.
+        gain.gain.setValueAtTime(0, start);
+        gain.gain.linearRampToValueAtTime(settings.gain, start + settings.attack);
+        gain.gain.setValueAtTime(settings.gain, start + Math.max(settings.attack, duration - settings.release));
+        gain.gain.linearRampToValueAtTime(0, start + duration);
+        if (context.createBiquadFilter) {
+          filter = context.createBiquadFilter();
+          filter.type = 'lowpass';
+          filter.frequency.value = settings.cutoff;
+          filter.Q.value = 0.6;
+        }
+      } else gain.gain.value = settings.gain;
+      source.connect(filter ?? gain);
+      if (filter) filter.connect(gain);
       gain.connect(master);
-      const voice = { source, gain, kind };
+      const voice = { source, filter, gain, kind };
       source.onended = () => {
         active.delete(voice);
         source.disconnect();
+        filter?.disconnect();
         gain.disconnect();
       };
       active.add(voice);
-      source.start();
+      if (kind === 'wheel') source.start(context.currentTime, settings.offset, duration);
+      else source.start();
       lastPlayed.set(kind, time);
     } catch { /* Sound must never interrupt a move. */ }
   }

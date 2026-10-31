@@ -1,5 +1,7 @@
 # Cascado — Sons libres du jeu
 
+**Version 1.32 · 31 octobre 2026 : passage ouvert et rotation distincte.** Le clic net est réservé à l’entrée dans un chevauchement d’au moins 20 unités sur 28 entre deux ouvertures de la face affichée. Une seule encoche sur une porte fixe, les entrées et la sortie ne suffisent plus. Le halo et la vibration suivent ce même signal, avec une hystérésis de 0,2° contre les tremblements. La rotation devient un bref frottement plus doux, distinct du clic. Roues et chutes adverses restent audibles.
+
 **Version 1.31 · 31 octobre 2026 : cadence et chutes adverses.** Les petits clics de rotation sont espacés d’au moins **150 ms** (contre 72 ms auparavant), avec le même intervalle laissé après un clic d’alignement fort. L’alignement reste sonore uniquement sur la face du joueur qui manipule la roue. Les nouvelles chutes adverses, y compris internes, déclenchent désormais un bruit générique sur le plateau affiché. Une cascade simultanée produit un seul signal, sans file d’attente ni détail de jeton, de roue, de position ou de verdict communiqué au rendu. Cette présence sonore est un indice adverse demandé explicitement ; les trajectoires privées restent exclues des animations et ne modifient pas la durée des tours IA.
 
 **Version 1.30 · 31 octobre 2026 : activation iPhone renforcée.** Le son reprend aussi après un contexte Safari `interrupted`, et un contexte fermé est recréé au prochain geste. Les clips manquants sont retentés sans recharger ceux qui sont déjà prêts. Le relâchement du doigt réessaie l’activation ; le masque continue d’arrêter les sons immédiatement. La réactivation du haut-parleur émet un bref clic de confirmation, abandonné si une interruption survient pendant son chargement.
@@ -12,13 +14,13 @@ Les trois sons sont des enregistrements de **Kenney**, publiés sous **Creative 
 
 | Fichier livré | Usage | Enregistrement d’origine | Pack |
 | --- | --- | --- | --- |
-| `assets/audio/wheel.wav` | Mouvement de roue et clic distinct du cran aimanté | `Audio/tick_001.ogg` | Interface Sounds 1.0 |
-| `assets/audio/slide.wav` | Frottement et mouvement d’un jeton visible | `Audio/chips-handle-4.ogg` | Casino Audio 1.1 |
+| `assets/audio/wheel.wav` | Clic net de passage ouvert et confirmation du son | `Audio/tick_001.ogg` | Interface Sounds 1.0 |
+| `assets/audio/slide.wav` | Frottement des roues et mouvement d’un jeton visible | `Audio/chips-handle-4.ogg` | Casino Audio 1.1 |
 | `assets/audio/drop.wav` | Contact d’un jeton à l’arrivée | `Audio/chip-lay-1.ogg` | Casino Audio 1.1 |
 
 Les originaux OGG ont été convertis en WAV PCM 16 bits, mono, 44,1 kHz pour être décodés dans Safari et Chrome. Les WAV sont hébergés avec le jeu : aucun service sonore distant, aucun compte et aucune télémétrie. Les documents de licence originaux accompagnent les sons dans `assets/audio/LICENSE-interface.txt` et `assets/audio/LICENSE-casino.txt`.
 
-Le mouvement de roue et le cran réutilisent le même fichier et le même tampon audio : il n’est téléchargé et décodé qu’une fois. Avant le volume général, le mouvement utilise un gain de **0,35** ; le cran utilise un gain de **1** et une vitesse de lecture de **0,82** pour être mieux distinct. Le cran suit la même arrivée géométrique que le halo de **300 ms** et la vibration facultative de **12 ms**, avec un intervalle minimal commun de **140 ms**. Un alignement ne se signale pas de nouveau avant la sortie de son champ ; l’immobilité et le relâchement ne produisent aucun clic.
+La rotation réutilise uniquement la portion **110 à 220 ms** de `slide.wav`, en dehors de son impact initial, avec un gain de **0,60**, un filtre passe-bas à **1 600 Hz**, une attaque de **12 ms** et une sortie de **28 ms**. Ce bref frottement reste espacé d’au moins **150 ms**, également après un clic net. Le clic de passage conserve `wheel.wav` entier, un gain de **1** et une vitesse de lecture de **0,82**. Chaque fichier est téléchargé et décodé une seule fois ; le glissement et la chute conservent leurs clips complets. Le clic suit le même chevauchement géométrique que le halo de **300 ms** et la vibration facultative de **12 ms**, avec un intervalle minimal commun de **140 ms**. Un passage déjà ouvert au contact reste silencieux ; il faut le refermer au-delà de l’hystérésis puis le rouvrir pour un nouveau signal. L’immobilité et le relâchement ne produisent aucun clic. Le bouton de réactivation garde son clic de confirmation explicite.
 
 Sources vérifiées le 28 octobre 2026 :
 

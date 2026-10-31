@@ -11,11 +11,12 @@ function deferred() {
 // Fake Web Audio nodes retain their lifecycle so a mask can be checked for
 // lingering sources. No browser, external dependency or real audio is needed.
 function harness(options = {}) {
-  const state = { time: 0, contexts: [], sources: [], gains: [], requests: [], resumeStates: [] };
+  const state = { time: 0, contexts: [], sources: [], gains: [], filters: [], requests: [], resumeStates: [] };
   class FakeAudioContext {
     constructor() {
       if (options.constructorError) throw new Error('Audio unavailable');
       this.state = 'suspended';
+      this.currentTime = 1;
       this.destination = {};
       state.contexts.push(this);
     }
@@ -26,22 +27,37 @@ function harness(options = {}) {
       this.state = 'running';
     }
     createGain() {
+      const automation = [];
       const gain = {
-        gain: { value: 0 },
+        gain: {
+          value: 0,
+          automation,
+          setValueAtTime(value, time) { automation.push({ ramp: false, value, time }); },
+          linearRampToValueAtTime(value, time) { automation.push({ ramp: true, value, time }); },
+        },
         connected: false,
-        connect() { this.connected = true; },
+        connect(target) { this.connected = true; this.target = target; },
         disconnect() { this.connected = false; },
       };
       state.gains.push(gain);
       return gain;
     }
+    createBiquadFilter() {
+      const filter = {
+        frequency: { value: 0 }, Q: { value: 0 }, connected: false,
+        connect(target) { this.connected = true; this.target = target; },
+        disconnect() { this.connected = false; },
+      };
+      state.filters.push(filter);
+      return filter;
+    }
     createBufferSource() {
       const source = {
         context: this,
         started: false, stopped: false, connected: false, playbackRate: {value: 1},
-        connect() { this.connected = true; },
+        connect(target) { this.connected = true; this.target = target; },
         disconnect() { this.connected = false; },
-        start() { this.started = true; },
+        start(...args) { this.started = true; this.startArgs = args; },
         stop() { this.stopped = true; },
         finish() { this.onended?.(); },
       };
@@ -118,12 +134,12 @@ test('audio : les crans rapides sont limités sans supprimer glissement et conta
   assert.equal(state.gains.slice(1).every(gain => !gain.connected), true);
 });
 
-test('audio : la rotation espace ses clics de 150 ms et laisse respirer le clic d’alignement', async () => {
+test('audio : la rotation espace ses frottements de 150 ms et laisse respirer le clic d’alignement', async () => {
   const { player, state } = harness();
   await player.unlock();
   player.turn();
   state.time = 149; player.turn();
-  assert.equal(state.sources.length, 1, 'pas de crépitement entre deux clics de rotation');
+  assert.equal(state.sources.length, 1, 'pas de crépitement entre deux frottements de rotation');
   state.time = 150; player.turn();
   assert.equal(state.sources.length, 2);
   state.time = 160; player.detent();
@@ -222,15 +238,35 @@ test('audio : la polyphonie est bornée et les sons écartés ne sont jamais dif
   assert.equal(state.sources.length, 6);
 });
 
-test('audio : le cran est plus net que la rotation, partage le clip local et ne se répète pas à chaque image', async () => {
+test('audio : la rotation est un court frottement filtré avec fondus, distinct du clic net d’alignement', async () => {
   const {player,state} = harness();
   await player.unlock();
   player.turn(); player.detent();
   assert.equal(state.sources.length,2);
-  assert.equal(state.sources[0].buffer,state.sources[1].buffer);
+  assert.notEqual(state.sources[0].buffer,state.sources[1].buffer, 'la rotation ne recycle plus le clic d’alignement');
   assert.equal(state.sources[1].playbackRate.value,.82);
-  assert.ok(state.gains[2].gain.value > state.gains[1].gain.value * 2);
-  assert.equal(state.requests.length,3,'le clip commun est téléchargé une fois');
+  const friction = state.sources[0];
+  const filter = state.filters[0];
+  const envelope = state.gains[1].gain.automation;
+  assert.equal(state.filters.length,1, 'le clic net conserve son signal sans filtre');
+  assert.equal(friction.target,filter);
+  assert.equal(filter.target,state.gains[1]);
+  assert.equal(filter.type,'lowpass');
+  assert.ok(filter.frequency.value >= 800 && filter.frequency.value <= 2000, 'les aigus secs sont atténués');
+  assert.equal(friction.playbackRate.value,1, 'la distinction ne repose pas sur un simple changement de hauteur');
+  assert.equal(friction.startArgs[0],friction.context.currentTime, 'le frottement commence immédiatement');
+  assert.ok(friction.startArgs[1] >= .1, 'le départ exclut l’impact initial de slide.wav');
+  assert.ok(friction.startArgs[2] <= .12, 'un bref fragment remplace le glissement entier');
+  assert.equal(envelope[0].value,0);
+  assert.equal(envelope[0].time,friction.startArgs[0]);
+  assert.equal(envelope[1].ramp,true);
+  assert.ok(envelope[1].time > envelope[0].time, 'l’attaque est adoucie');
+  assert.equal(envelope.at(-1).value,0);
+  assert.equal(envelope.at(-1).ramp,true);
+  assert.equal(envelope.at(-1).time,friction.startArgs[0]+friction.startArgs[2]);
+  assert.ok(state.gains[2].gain.value > Math.max(...envelope.map(point=>point.value)), 'le bruit de fond reste moins amplifié que le clic net');
+  assert.deepEqual(state.sources[1].startArgs,[], 'l’alignement garde le clip entier');
+  assert.equal(state.requests.length,3,'la rotation réutilise le clip de glissement déjà local');
   state.time=50; player.detent();
   state.time=139; player.detent();
   assert.equal(state.sources.length,2);
@@ -238,6 +274,18 @@ test('audio : le cran est plus net que la rotation, partage le clip local et ne 
   assert.equal(state.sources.length,3);
   player.setEnabled(false);
   assert.equal(state.sources.every(source=>source.stopped),true);
+  assert.equal(state.filters.every(filter=>!filter.connected),true);
+});
+
+test('audio : les glissements et les chutes conservent leurs clips complets et leur volume', async () => {
+  const { player, state } = harness();
+  await player.unlock();
+  player.slide(); player.drop();
+  assert.deepEqual(state.sources.map(source=>source.startArgs),[[],[]]);
+  assert.deepEqual(state.sources.map(source=>source.playbackRate.value),[1,1]);
+  assert.deepEqual(state.gains.slice(1).map(gain=>gain.gain.value),[.55,.85]);
+  assert.equal(state.filters.length,0);
+  assert.notEqual(state.sources[0].buffer,state.sources[1].buffer);
 });
 
 test('audio : un cran reste prioritaire à la limite des voix, sans lecture différée', async () => {
@@ -247,6 +295,7 @@ test('audio : un cran reste prioritaire à la limite des voix, sans lecture diff
   player.detent();
   assert.equal(state.sources.length,6);
   assert.equal(state.sources[0].stopped,true);
+  assert.equal(state.filters[0].connected,false, 'l’alignement libère aussi le filtre de la rotation évincée');
   assert.equal(state.sources.filter(source=>!source.stopped).length,5);
   player.stop();
   state.time+=500; player.detent();

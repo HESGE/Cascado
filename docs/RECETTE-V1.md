@@ -563,3 +563,19 @@ Validation :
 - Capture de contrôle : `output/recette/cascado-v1.28-prise-cran.png`. Les pages de contrôle et l’instrumentation sont retirées avant publication.
 
 Limites : la vérification dans le navigateur utilise une souris. Les démarrages Web Audio ont été observés, mais la qualité sonore et la sensation tactile sur un iPhone physique restent à confirmer. La vibration reste facultative selon le navigateur. La version visible en bas de l’accueil est **1.28**.
+
+## Évolution v1.32 — clic réservé au passage réellement ouvert (31 octobre 2026)
+
+Le clic net, le halo et la vibration ne suivent plus les arrêts fixes du magnétisme. Un détecteur distinct utilise uniquement les angles de la face autorisée pour reconnaître une ouverture commune d’au moins 20 unités sur 28 entre deux roues. Une encoche seule devant un conduit, les entrées et la sortie ne déclenchent plus ce signal. Les fenêtres de passage sont calculées analytiquement depuis les bouches de la roue voisine ; le mouvement réellement appliqué est suivi sans dépendre des images, y compris les inversions et les tours complets. Le contact sur un passage déjà ouvert reste silencieux et une hystérésis de 0,2° évite les répétitions par tremblement. L’occupation et les jetons ne participent pas au calcul ; moteur, tolérance de passage et aimantation restent inchangés.
+
+La rotation utilise désormais un frottement distinct : portion 110–220 ms de `slide.wav`, filtre passe-bas 1 600 Hz, gain 0,60 avant le volume général, attaque 12 ms et sortie 28 ms. Le clic de passage conserve `wheel.wav`, gain 1 et vitesse 0,82. Les roues des deux joueurs et les chutes adverses restent audibles ; Full, simulations sans plateau, masque et interruptions gardent leur comportement. Aucun asset, service distant ou préférence supplémentaire n’est ajouté.
+
+Validation :
+
+- Suite complète : **579 tests, 564 réussis, zéro échec, 15 ignorés** car les intégrations navigateur/IndexedDB optionnelles ne sont pas activées dans cette commande.
+- Suite ciblée : **76 réussis, aucun échec ou ignoré**, comprenant 15 tests du nouveau détecteur, 23 de routage réel de l’application, 20 audio, 8 de retour visuel et 10 de chutes adverses.
+- Les tests de routage exécutent en Node les fonctions et gestionnaires de pointeur réels d’`app.js`, avec le moteur, les gestes et le magnétisme réels. Ils vérifient la création et la transmission du détecteur, le signe sur B, les gestes coalescés, les reprises, les annulations, le clavier et les tours IA mixtes. Les détails adverses restent exclus de l’animation.
+- Recette dans le navigateur intégré, cadre **414 × 715**, avec fixtures sur origine locale isolée et comptage des vrais démarrages Web Audio : sur A puis B, le même arc de roue 2 produit **zéro clic net et un frottement** lorsque la roue 1 voisine est fermée ; avec la bouche voisine préparée, il produit **un clic net et un frottement** lors de la traversée. L’angle suit le sens du doigt sur les deux faces. Aucune erreur ou alerte de console constatée.
+- Capture locale : `output/recette/cascado-v1.32-clic-passage.png`. La page instrumentée est temporaire et retirée du build avant publication ; ses données n’entrent pas dans le dépôt.
+
+La recette confirme les événements audio réels du navigateur sur ordinateur. Elle ne remplace pas une écoute sur le haut-parleur d’un iPhone physique ; le volume et le ressenti tactile restent à apprécier sur cet appareil. La version visible à l’accueil est **1.32**.

@@ -1,4 +1,4 @@
-/** Optional feedback for a geometric magnetic arrival, never for token events. */
+/** Optional feedback for a geometric opening, never for token events. */
 export const ALIGNMENT_FEEDBACK_MS = 300;
 export const ALIGNMENT_VIBRATION_MS = 12;
 export const ALIGNMENT_FEEDBACK_INTERVAL = 140;

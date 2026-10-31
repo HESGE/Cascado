@@ -20,7 +20,7 @@ function registerStaticTests() {
 test('PWA: precache covers every local module, stylesheet, manifest and icon under a subpath', async () => {
   const manifest = JSON.parse(await readFile(path.join(project, 'manifest.webmanifest'), 'utf8'));
   const required = new Set(['index.html', 'src/app.js', 'src/board.js', 'src/engine.js', 'src/geometry.js', 'src/players.js', 'src/ai.js', 'src/ai-client.js', 'src/ai-worker.js', 'src/ai-motion.js', 'src/ai-speed.js',
-    'src/openings.js', 'src/detents.js', 'src/gesture.js', 'src/magnet.js', 'src/feedback.js', 'src/alignment.js', 'src/flow.js', 'src/storage.js', 'src/statistics.js', 'src/series.js', 'src/starting-position.js', 'src/simulation.js', 'src/simulation-client.js', 'src/simulation-worker.js', 'src/motion.js', 'src/sound.js', 'src/styles.css', 'manifest.webmanifest',
+    'src/openings.js', 'src/detents.js', 'src/gesture.js', 'src/magnet.js', 'src/passage-feedback.js', 'src/feedback.js', 'src/alignment.js', 'src/flow.js', 'src/storage.js', 'src/statistics.js', 'src/series.js', 'src/starting-position.js', 'src/simulation.js', 'src/simulation-client.js', 'src/simulation-worker.js', 'src/motion.js', 'src/sound.js', 'src/styles.css', 'manifest.webmanifest',
     'assets/audio/wheel.wav','assets/audio/slide.wav','assets/audio/drop.wav',
     ...manifest.icons.map(icon => icon.src.replace(/^\.\//, ''))]);
   for (const asset of assets) assert.ok(asset.startsWith(root.href), `${asset} left the app scope`);

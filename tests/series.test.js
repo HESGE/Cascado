@@ -2,8 +2,10 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createGame } from '../src/engine.js';
 import { configurePlayers } from '../src/players.js';
-import { configureStartingPosition, startingAnglesFor, ORIGINAL_START_MODE } from '../src/starting-position.js';
-import { PREVIOUS_GEOMETRY_VERSION, SUPPORTED_GEOMETRY_VERSIONS } from '../src/geometry.js';
+import { configureStartingPosition, configureGameSet, startingAnglesFor, ORIGINAL_START_MODE,
+  MIROIR50_START_MODE, miroir50ScheduleEntry } from '../src/starting-position.js';
+import { PREVIOUS_GEOMETRY_VERSION, SUPPORTED_GEOMETRY_VERSIONS, MIRROR_GEOMETRY_VERSION,
+  wheelsFor } from '../src/geometry.js';
 import { tokenTotal } from '../src/tokens.js';
 import { createSeries, seriesOf, seriesGameId, parseSeriesCount,
   recordSeriesResult, createNextSeriesGame } from '../src/series.js';
@@ -315,7 +317,7 @@ test('original-v1 series preserve the reconstructed pose across renewed games an
 });
 
 test('renewed series keep all three stored mechanical profiles and their associated starting protocol', () => {
-  for (const geometryVersion of SUPPORTED_GEOMETRY_VERSIONS) {
+  for (const geometryVersion of SUPPORTED_GEOMETRY_VERSIONS.filter(version => version !== MIRROR_GEOMETRY_VERSION)) {
     const game = configurePlayers(createGame(['A', 'B'], 0, geometryVersion), [
       { controller: 'ai', level: 'hard' }, { controller: 'ai', level: 'hard' },
     ]);
@@ -334,4 +336,48 @@ test('renewed series keep all three stored mechanical profiles and their associa
   recordSeriesResult(finished(unknown));
   unknown.geometryVersion = 'future';
   assert.equal(createNextSeriesGame(unknown), null);
+});
+
+test('Miroir 50 series retain their fixed pool and pair complementary rematches across both starters', () => {
+  for (const firstStarter of [0, 1]) {
+    let game = configurePlayers(createGame(['A', 'B'], firstStarter, MIRROR_GEOMETRY_VERSION), [
+      { controller: 'ai', level: 'normal' }, { controller: 'ai', level: 'hard' },
+    ]);
+    game.series = createSeries(100, { id: 'mirror-pool', firstStarter });
+    game.starter = firstStarter;
+    game.statsId = seriesGameId(game.series);
+    configureGameSet(game, 'miroir-50', { mode: MIROIR50_START_MODE, seed: 42 }, 1);
+    const coverage = new Map();
+    let prior = null;
+    for (let round = 1; round <= 100; round++) {
+      const entry = miroir50ScheduleEntry(42, round);
+      assert.equal(game.gameSetId, 'miroir-50');
+      assert.equal(game.geometryVersion, MIRROR_GEOMETRY_VERSION);
+      assert.equal(game.starter, firstStarter ^ ((round - 1) % 2));
+      assert.equal(game.startConfig.mode, MIROIR50_START_MODE);
+      assert.deepEqual(game.startingAngles, entry.angles);
+      const starters = coverage.get(game.startingPose.poseId) ?? new Set();
+      starters.add(game.active);
+      coverage.set(game.startingPose.poseId, starters);
+      if (round % 2 === 0) {
+        for (const [index, wheel] of wheelsFor(MIRROR_GEOMETRY_VERSION).entries()) {
+          // Complementing twice may add one entire notch pitch: identical
+          // mouths do not require identical array-slot labels or 360° phases.
+          const pitch = 360 / wheel.notches;
+          const difference = game.startingAngles[index] - prior[index] - wheel.delta;
+          const residual = ((difference % pitch) + pitch) % pitch;
+          assert.ok(Math.min(residual, pitch - residual) < 1e-8);
+        }
+      }
+      prior = [...game.startingAngles];
+      assert.equal(recordSeriesResult(finished(game)), true);
+      const saved = structuredClone(game);
+      const next = createNextSeriesGame(JSON.parse(JSON.stringify(game)));
+      assert.deepEqual(game, saved);
+      if (round === 100) assert.equal(next, null);
+      else { assert.ok(next); game = next; }
+    }
+    assert.equal(coverage.size, 50);
+    assert.ok([...coverage.values()].every(starters => starters.size === 2));
+  }
 });

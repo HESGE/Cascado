@@ -4,6 +4,7 @@ import {
 } from './geometry.js';
 import { tokenNumber, tokenSeries, tokenTotal, queueLanes, nextBySeries } from './tokens.js';
 import { mouthInterval, passableMouthInterval, openingOverlap, openingAngleBounds } from './openings.js';
+import { gameSetIdForGeometry } from './game-sets.js';
 
 const COLORS = ['#F5AC45', '#63D0B1'];
 const SYMBOLS = ['●', '◆'];
@@ -18,6 +19,7 @@ export function createGame(players = ['Camille', 'Léa'], starter = 0, geometryV
   return {
     schemaVersion: 1,
     geometryVersion,
+    gameSetId: gameSetIdForGeometry(geometryVersion),
     players: players.map((name, index) => ({ name: String(name).trim() || `Joueur ${index + 1}`, symbol: SYMBOLS[index], color: COLORS[index] })),
     angles: wheels.map(() => 0),
     faces: [0, 1].map(() => ({ queue: Array.from({ length: tokenTotal(geometryVersion) }, (_, index) => index + 1), slots: wheels.map(({ notches }) => Array(notches).fill(null)), exited: [] })),

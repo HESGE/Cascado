@@ -1,8 +1,9 @@
 /** Normative, versioned geometry. Angles are clockwise degrees in screen space. */
 export const GEOMETRY_VERSION = 'ddc-v1.5';
+export const MIRROR_GEOMETRY_VERSION = 'ddc-miroir50-v1';
 export const PREVIOUS_GEOMETRY_VERSION = 'ddc-v1.4';
 export const LEGACY_GEOMETRY_VERSION = 'ddc-v1.3';
-export const SUPPORTED_GEOMETRY_VERSIONS = Object.freeze([GEOMETRY_VERSION, PREVIOUS_GEOMETRY_VERSION, LEGACY_GEOMETRY_VERSION]);
+export const SUPPORTED_GEOMETRY_VERSIONS = Object.freeze([GEOMETRY_VERSION, PREVIOUS_GEOMETRY_VERSION, LEGACY_GEOMETRY_VERSION, MIRROR_GEOMETRY_VERSION]);
 export const BOARD = Object.freeze({ width: 360, height: 540 });
 export const ANGULAR_TOLERANCE = 1e-6;
 export const TOKEN_RADIUS = 12;
@@ -28,12 +29,22 @@ export const PREVIOUS_WHEELS = Object.freeze(WHEELS.map((wheel, index) =>
   Object.freeze({ ...wheel, delta: [180, 60, 90, 45, 36][index] })));
 export const LEGACY_WHEELS = Object.freeze(WHEELS.map((wheel, index) =>
   Object.freeze({ ...wheel, delta: [90, 36, 45, 45, 36][index] })));
+/** The exact sym-13 geometry tested with the fixed Miroir 50 starting pool. */
+export const MIRROR_WHEELS = Object.freeze(WHEELS.map((wheel, index) =>
+  Object.freeze({ ...wheel, delta: [180, 0, 90, 45, 36][index] })));
 
 export function wheelsFor(geometryVersion = GEOMETRY_VERSION) {
   if (geometryVersion === GEOMETRY_VERSION) return WHEELS;
   if (geometryVersion === PREVIOUS_GEOMETRY_VERSION) return PREVIOUS_WHEELS;
   if (geometryVersion === LEGACY_GEOMETRY_VERSION) return LEGACY_WHEELS;
+  if (geometryVersion === MIRROR_GEOMETRY_VERSION) return MIRROR_WHEELS;
   throw new RangeError('Version de géométrie incompatible.');
+}
+
+/** Both published sets use the modern two-lane board; historical saves do not. */
+export function hasTwoEntrances(geometryVersion = GEOMETRY_VERSION) {
+  wheelsFor(geometryVersion);
+  return geometryVersion === GEOMETRY_VERSION || geometryVersion === MIRROR_GEOMETRY_VERSION;
 }
 
 export const LINKS = Object.freeze([
@@ -89,16 +100,16 @@ export function gates(faceIndex) {
 /** Each entrance is fixed in the local face, including after reflection. */
 export function inputGates(geometryVersion = GEOMETRY_VERSION) {
   wheelsFor(geometryVersion);
-  return geometryVersion === GEOMETRY_VERSION ? [210, 330] : [INPUT_GATE];
+  return hasTwoEntrances(geometryVersion) ? [210, 330] : [INPUT_GATE];
 }
 
 export function boardHeightFor(geometryVersion = LEGACY_GEOMETRY_VERSION) {
   wheelsFor(geometryVersion);
-  return geometryVersion === GEOMETRY_VERSION ? BOARD.height : 510;
+  return hasTwoEntrances(geometryVersion) ? BOARD.height : 510;
 }
 
 export function queuePosition(index, lane = 0, geometryVersion = LEGACY_GEOMETRY_VERSION) {
-  if (geometryVersion === GEOMETRY_VERSION) {
+  if (hasTwoEntrances(geometryVersion)) {
     return { x: (lane === 0 ? 129 : 231) + (lane === 0 ? -24 : 24) * index, y: 70 - 10.5 * index };
   }
   const length = Math.hypot(136, 22);
@@ -107,13 +118,14 @@ export function queuePosition(index, lane = 0, geometryVersion = LEGACY_GEOMETRY
 
 export function trayPosition(faceIndex, index, geometryVersion = LEGACY_GEOMETRY_VERSION) {
   const output = centerFor(faceIndex, 5);
-  const lane = geometryVersion === GEOMETRY_VERSION ? Math.floor(index / 5) : 0;
-  const place = geometryVersion === GEOMETRY_VERSION ? index % 5 : index;
-  return { x: output.x - 87 + place * 26, y: (geometryVersion === GEOMETRY_VERSION ? 496 + 26 * lane : 494) - place * 3.5 };
+  const modern = hasTwoEntrances(geometryVersion);
+  const lane = modern ? Math.floor(index / 5) : 0;
+  const place = modern ? index % 5 : index;
+  return { x: output.x - 87 + place * 26, y: (modern ? 496 + 26 * lane : 494) - place * 3.5 };
 }
 
 /** Feed the numbered slope slightly above its highest place. */
 export function trayEntry(faceIndex, geometryVersion = LEGACY_GEOMETRY_VERSION, lane = 0) {
-  const high = trayPosition(faceIndex, (geometryVersion === GEOMETRY_VERSION ? lane * 5 : 0) + 4, geometryVersion);
+  const high = trayPosition(faceIndex, (hasTwoEntrances(geometryVersion) ? lane * 5 : 0) + 4, geometryVersion);
   return { x: high.x + 4, y: high.y - 4 * 3.5 / 26 };
 }

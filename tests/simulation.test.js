@@ -7,9 +7,11 @@ import { chooseAIMove } from '../src/ai.js';
 import { configurePlayers } from '../src/players.js';
 import { newSession, transmit, acceptReveal } from '../src/flow.js';
 import { createSeries, seriesGameId, recordSeriesResult } from '../src/series.js';
-import { OUTPUT_GATE, physicalAngleFor, GEOMETRY_VERSION, LEGACY_GEOMETRY_VERSION, SUPPORTED_GEOMETRY_VERSIONS } from '../src/geometry.js';
+import { OUTPUT_GATE, physicalAngleFor, GEOMETRY_VERSION, LEGACY_GEOMETRY_VERSION,
+  MIRROR_GEOMETRY_VERSION, SUPPORTED_GEOMETRY_VERSIONS } from '../src/geometry.js';
 import { tokenTotal, tokenSeries, tokenNumber } from '../src/tokens.js';
-import { configureStartingPosition, startingAnglesFor, ORIGINAL_START_MODE } from '../src/starting-position.js';
+import { configureStartingPosition, configureGameSet, startingAnglesFor, ORIGINAL_START_MODE,
+  MIROIR50_START_MODE, miroir50ScheduleEntry } from '../src/starting-position.js';
 import { isSimulationSession, createSimulationRandom, playSimulationTurn, runSimulation } from '../src/simulation.js';
 
 function session(starter = 0, levels = ['easy', 'normal'], geometryVersion = GEOMETRY_VERSION) {
@@ -254,7 +256,7 @@ test('original-v1 simulations reject incompatible profiles before callbacks or w
     let started = false;
     await assert.rejects(runSimulation({ startMode: ORIGINAL_START_MODE, geometryVersion }, {
       onProgress() { started = true; },
-    }), /ddc-v1\.5/);
+    }), geometryVersion === MIRROR_GEOMETRY_VERSION ? /Miroir 50/ : /ddc-v1\.5/);
     assert.equal(started, false);
   }
 });
@@ -386,6 +388,9 @@ test('headless snapshots and fresh simulations preserve supported legacy geometr
 test('headless validation preserves each supported profile and its exact token supply', () => {
   for (const version of SUPPORTED_GEOMETRY_VERSIONS) {
     const value = session(0, ['easy', 'easy'], version);
+    if (version === MIRROR_GEOMETRY_VERSION) {
+      configureGameSet(value.game, 'miroir-50', { mode: MIROIR50_START_MODE, seed: 42 });
+    }
     const total = tokenTotal(version);
     assert.equal(isSimulationSession(value), true);
     assert.equal(value.game.faces[0].queue.length, total);
@@ -400,6 +405,57 @@ test('headless validation preserves each supported profile and its exact token s
     missing.game.faces[0].queue.pop();
     assert.equal(isSimulationSession(missing), false);
   }
+});
+
+test('Miroir 50 headless games expose the selected set and immutable pool provenance without remixing poses', async () => {
+  const progress = [];
+  const config = { count: 4, levels: ['easy', 'normal'], seed: 42, gameSetId: 'miroir-50' };
+  const report = await runSimulation(config, {
+    onProgress(value) {
+      progress.push(structuredClone(value));
+      value.current.startingAngles[0] = -999;
+      value.current.startingPose.poseId = 'corrupted';
+    },
+  });
+  assert.deepEqual(report, await runSimulation(config));
+  assert.equal(report.completed, 4);
+  assert.equal(report.gameSetId, 'miroir-50');
+  assert.match(report.gameSetLabel, /Miroir 50/);
+  assert.equal(report.geometryVersion, MIRROR_GEOMETRY_VERSION);
+  assert.equal(report.startMode, MIROIR50_START_MODE);
+  assert.equal(report.positionCount, 2);
+  assert.deepEqual(report.results.map(result => result.starter), [0, 1, 0, 1]);
+  for (const result of report.results) {
+    const entry = miroir50ScheduleEntry(42, result.number);
+    assert.equal(result.gameSetId, 'miroir-50');
+    assert.equal(result.startingPose.poseId, entry.poseId);
+    assert.deepEqual(result.startingAngles, entry.angles);
+  }
+  assert.ok(progress.every(value => value.gameSetId === 'miroir-50' &&
+    value.current.startingPose.poseId !== 'corrupted' && value.current.startingAngles[0] !== -999));
+  for (const startMode of ['classic', 'varied', ORIGINAL_START_MODE]) {
+    await assert.rejects(runSimulation({ gameSetId: 'miroir-50', startMode }), /lot fixe/);
+  }
+  for (const options of [
+    { gameSetId: 'unknown' }, { gameSetId: null },
+    { gameSetId: 'miroir-50', geometryVersion: GEOMETRY_VERSION },
+    { gameSetId: 'reference', geometryVersion: MIRROR_GEOMETRY_VERSION },
+    { gameSetId: 'reference', startMode: MIROIR50_START_MODE },
+  ]) await assert.rejects(runSimulation(options), TypeError);
+});
+
+test('CLI set choice publishes explicit Miroir 50 results and rejects incompatible starting protocols', () => {
+  const args = ['--games', '2', '--ai1', 'easy', '--ai2', 'easy', '--set', 'miroir-50', '--seed', '42', '--json'];
+  const result = command(args);
+  assert.equal(result.status, 0, result.stderr);
+  const report = JSON.parse(result.stdout);
+  assert.equal(report.gameSetId, 'miroir-50');
+  assert.equal(report.startMode, MIROIR50_START_MODE);
+  assert.equal(report.completed, 2);
+  assert.ok(report.results.every(item => item.gameSetId === 'miroir-50' && item.startingPose.poolId));
+  assert.equal(command(['--set', 'miroir-50', '--starts', 'varied']).status, 2);
+  assert.equal(command(['--set', 'unknown']).status, 2);
+  assert.match(command(['--help']).stdout, /--set/);
 });
 
 test('a complete first series is not a terminal headless match while the second series remains', () => {

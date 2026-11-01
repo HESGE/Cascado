@@ -1,8 +1,9 @@
 import { createGame } from './engine.js';
 import { configurePlayers, isAIPlayer } from './players.js';
 import { validStatisticsGame } from './statistics.js';
-import { configureStartingPosition, isValidStartingPosition } from './starting-position.js';
+import { configureGameSet, isValidStartingPosition, miroir50ScheduleEntry } from './starting-position.js';
 import { SUPPORTED_GEOMETRY_VERSIONS } from './geometry.js';
+import { gameSetIdForGeometry, isValidGameSet } from './game-sets.js';
 
 const VERSION = 1;
 const MAX_GAMES = 1000;
@@ -81,9 +82,13 @@ export function createNextSeriesGame(game) {
   if (!series || series.completed !== series.round || series.completed >= series.target ||
       game.statsId !== series.lastGameId || !validStatisticsGame(game) ||
       !SUPPORTED_GEOMETRY_VERSIONS.includes(game.geometryVersion) ||
+      !isValidGameSet(game) ||
       !isValidStartingPosition(game, series.round)) return null;
   series.round = series.completed + 1;
-  const starter = series.firstStarter ^ (series.completed % 2);
+  const gameSetId = game.gameSetId ?? gameSetIdForGeometry(game.geometryVersion);
+  const starterOffset = gameSetId === 'miroir-50'
+    ? miroir50ScheduleEntry(game.startConfig.seed, series.round).starterOffset : series.completed % 2;
+  const starter = series.firstStarter ^ starterOffset;
   const next = configurePlayers(createGame(game.players.map(player => player.name), starter, game.geometryVersion), game.players);
   next.starter = starter;
   if(game.simulationMode === 'headless') next.simulationMode = 'headless';
@@ -94,6 +99,6 @@ export function createNextSeriesGame(game) {
   }
   next.series = series;
   next.statsId = seriesGameId(series);
-  configureStartingPosition(next, game.startConfig, series.round);
+  configureGameSet(next, gameSetId, game.startConfig, series.round);
   return next;
 }

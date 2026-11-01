@@ -247,3 +247,51 @@ test('IndexedDB: failed statistics commit rolls back snapshot, journal and dedup
   assert.deepEqual(result.after, result.before);
   assert.equal(result.retried.totalGames, result.before.statistics.totalGames + 1);
 });
+
+test('IndexedDB: legacy totals survive and Miroir 50 saves retain pool provenance with separate counters', { skip: !baseURL }, async () => {
+  const result = await page.evaluate(async () => {
+    const storage = await import('/src/storage.js');
+    const { recordStatistics } = await import('/src/statistics.js');
+    const { createGame } = await import('/src/engine.js');
+    const { MIRROR_GEOMETRY_VERSION } = await import('/src/geometry.js');
+    const { configureGameSet } = await import('/src/starting-position.js');
+    await storage.resetStatistics();
+    const legacy = recordStatistics(undefined, { statsId: crypto.randomUUID(), turn: 8,
+      players: [{ name: 'A' }, { name: 'B' }], verdict: { winner: 0, reason: 'complete' } });
+    delete legacy.gameSets;
+    await new Promise((resolve, reject) => {
+      const request = indexedDB.open('dix-de-chute-v1', 1);
+      request.onsuccess = () => {
+        const database = request.result;
+        const tx = database.transaction('state', 'readwrite');
+        tx.objectStore('state').put({ id: 'statistics', value: legacy });
+        tx.oncomplete = () => { database.close(); resolve(); };
+        tx.onabort = () => { database.close(); reject(tx.error); };
+      };
+      request.onerror = () => reject(request.error);
+    });
+    const migrated = await storage.loadStatistics();
+    const game = configureGameSet(createGame(['A', 'B'], 0, MIRROR_GEOMETRY_VERSION),
+      'miroir-50', { mode: 'miroir-50', seed: 42 });
+    game.statsId = crypto.randomUUID();
+    game.turn = 6;
+    game.verdict = { winner: 1, reason: 'complete' };
+    const saved = { game, phase: 'revealed-result', recipient: game.active };
+    await storage.saveGame(saved);
+    const restored = await storage.loadGame();
+    const statistics = await storage.loadStatistics();
+    const reset = await storage.resetStatistics();
+    await storage.saveGame(saved);
+    return { migrated, saved, restored, statistics, reset, afterReplay: await storage.loadStatistics() };
+  });
+  assert.equal(result.migrated.totalGames, 1);
+  assert.deepEqual(result.migrated.gameSets.map(group => [group.id, group.totalGames]), [['reference', 1]]);
+  assert.deepEqual(result.restored, result.saved);
+  assert.equal(result.restored.game.gameSetId, 'miroir-50');
+  assert.ok(result.restored.game.startingPose.poolId);
+  assert.equal(result.statistics.totalGames, 2);
+  assert.deepEqual(result.statistics.gameSets.map(group => [group.id, group.totalGames]),
+    [['reference', 1], ['miroir-50', 1]]);
+  assert.deepEqual(result.reset.gameSets, []);
+  assert.deepEqual(result.afterReplay, result.reset);
+});

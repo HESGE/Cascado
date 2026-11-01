@@ -6,8 +6,8 @@ import { newSession } from '../src/flow.js';
 import { createSeries, seriesGameId } from '../src/series.js';
 import { createSimulationClient } from '../src/simulation-client.js';
 import { advanceSimulationBatch } from '../src/simulation-worker.js';
-import { configureStartingPosition, startingAnglesFor } from '../src/starting-position.js';
-import { GEOMETRY_VERSION, LEGACY_GEOMETRY_VERSION, SUPPORTED_GEOMETRY_VERSIONS } from '../src/geometry.js';
+import { configureStartingPosition, configureGameSet, startingAnglesFor } from '../src/starting-position.js';
+import { GEOMETRY_VERSION, LEGACY_GEOMETRY_VERSION, MIRROR_GEOMETRY_VERSION, SUPPORTED_GEOMETRY_VERSIONS } from '../src/geometry.js';
 import { tokenTotal } from '../src/tokens.js';
 
 function session(geometryVersion = GEOMETRY_VERSION) {
@@ -17,6 +17,9 @@ function session(geometryVersion = GEOMETRY_VERSION) {
   game.starter = 0;
   game.series = createSeries(10, { id: 'client-test' });
   game.statsId = seriesGameId(game.series);
+  if (geometryVersion === MIRROR_GEOMETRY_VERSION) {
+    configureGameSet(game, 'miroir-50', { mode: 'miroir-50', seed: 42 });
+  }
   return newSession(game);
 }
 
@@ -85,6 +88,36 @@ test('simulation client reuses one module worker across sequential batches', asy
   assert.equal((await next).session.game.turn, 10);
   r.client.cancel();
   assert.equal(worker.terminated, true);
+});
+
+test('worker progress retains the exact named set and Miroir 50 pool provenance', async () => {
+  const original = session(MIRROR_GEOMETRY_VERSION);
+  const acceptedRig = rig();
+  const pending = acceptedRig.client.advance(original);
+  acceptedRig.workers[0].reply();
+  const accepted = await pending;
+  assert.equal(accepted.session.game.gameSetId, 'miroir-50');
+  assert.deepEqual(accepted.session.game.startingPose, original.game.startingPose);
+  acceptedRig.client.cancel();
+  for (const change of [
+    value => { value.session.game.gameSetId = 'reference'; },
+    value => { delete value.session.game.gameSetId; },
+    value => { value.session.game.startingPose.poseId = 'other-pose'; },
+    value => { delete value.session.game.startingPose; },
+  ]) {
+    const rejectedRig = rig();
+    const wait = rejectedRig.client.advance(original);
+    const reply = progressed(rejectedRig.workers[0]);
+    change(reply); rejectedRig.workers[0].reply(reply);
+    assert.equal(await wait, null);
+  }
+  // A reply must not erase the explicit set ID on a fresh Référence game.
+  const reference = rig();
+  const wait = reference.client.advance(session());
+  const reply = progressed(reference.workers[0]);
+  delete reply.session.game.gameSetId;
+  reference.workers[0].reply(reply);
+  assert.equal(await wait, null);
 });
 
 test('simulation input and accepted output are independent structured copies', async () => {

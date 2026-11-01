@@ -647,3 +647,26 @@ Validation :
 - Captures locales : `output/recette/cascado-v1.36-depart-A.png` et `output/recette/cascado-v1.36-depart-B.png`. Les parties de contrôle utilisent une origine locale isolée et n’affectent pas les sauvegardes du jeu public. Aucun essai sur iPhone physique n’est revendiqué.
 
 Le nouveau départ est une approximation photographique explicitement nommée ; il ne certifie pas le départ exact d’une édition commerciale ni un équilibre 50/50. La version visible à l’accueil est **1.36**.
+
+## Évolution v1.37 — Référence et Miroir 50 (1er novembre 2026)
+
+La préparation d’une nouvelle partie et du duel automatique propose un choix **Set de jeu** entre **Référence** et **Miroir 50**. Référence conserve la géométrie publiée `ddc-v1.5` et ses départs photographiques, classiques ou variés selon le parcours. Miroir 50 utilise `ddc-miroir50-v1`, les décalages **[180°, 0°, 90°, 45°, 36°]** et les **50 poses exactes** du lot de recherche sym-13, sans ajouter les 500 départs de l’étude élargie. Les deux sets ont dix jetons et deux entrées par face. Le set ne change pas au cours d’une partie ; les sauvegardes historiques conservent leur mécanisme.
+
+Le tirage ordinaire de Miroir 50 choisit une famille et un rôle sans consulter les IA ou un résultat. Une revanche propose la pose complémentaire de la même famille avec premier joueur inversé. En série IA, un cycle de 100 parties couvre les 50 poses avec les deux premiers joueurs, avec alternance à chaque manche et deux paires complémentaires par famille. La commande `--set miroir-50` emploie le même calendrier. Chaque bilan identifie son set ; les statistiques proposent Tous les sets, Référence et Miroir 50, avec remise à zéro globale explicite.
+
+Validation indépendante exécutée :
+
+- Égalité exacte, sans arrondi ni nouvelle sélection, des 50 poses livrées avec `profil-equilibre-provisoire.json`. Les 25 relations de complémentarité θ + δ sont vérifiées pour les cinq roues. Les quatre entrées restent fermées dans chacune des 50 positions, avec dix jetons et une hauteur de plateau de 540 unités.
+- Calendrier contrôlé sur **9 graines et 1 000 manches chacune**, soit **9 000 positions** : appartenance exclusive au lot fixe, couverture de chaque pose avec les deux premiers joueurs par cycle de 100, et paires complémentaires de même famille. Les 50 graines de tirage ordinaire et leur revanche sont aussi contrôlées.
+- **Huit trajectoires réelles**, sur les familles 0 et 15, poses de base et complémentaires, niveaux Normal et Difficile, sont rejouées dans les modules de recherche sym-13 gelés puis comparées à la production Miroir 50. Les coups IA, angles physiques, jetons, frontières de révélation et verdicts sont identiques à chaque tour ; ces parties durent de 90 à 103 tours. Ce contrôle vérifie que l’intégration ne modifie pas la mécanique ou les décisions déjà étudiées.
+- Suite ciblée des sets, séries, simulations et statistiques : **74 tests réussis, aucun échec et aucun ignoré**. Les contrôles incluent la séparation des compteurs et la conservation des totaux historiques.
+
+Les résultats d’équilibre précédemment mesurés portent sur ce lot fini et ces IA déterministes. Le 50/50 entre faces provient du protocole complémentaire ; il ne constitue pas une preuve d’équilibre de chaque départ, d’équilibre en jeu humain ou de stratégie optimale. Aucune de ces propriétés n’est promise par l’interface.
+
+Complément de recette avant publication :
+
+- Suite complète : **724 tests, 708 réussis, zéro échec, 16 ignorés**. Les cas ignorés exigent des intégrations Playwright/IndexedDB absentes de cet environnement ; ils ne comptent pas comme réussites. Syntaxe, manifest, cache PWA et construction statique validés.
+- Navigateur intégré, version finale construite, **414 × 896** puis **360 × 640** : sélecteur et statistiques sans dépassement horizontal, largeur du document égale à la largeur disponible. Référence affiche `ddc-v1.5`, Miroir 50 affiche `ddc-miroir50-v1`, dix jetons et plateau de 540 unités. Le nom du set reste visible pendant le jeu. Aucun essai sur iPhone physique n’est revendiqué.
+- Miroir 50 joué sur les deux faces : déplacement au clavier, transmission masquée, aucun plateau ni roue dans le masque, puis rechargement et reprise au bon destinataire avec la roue précédente interdite. Le changement vers Référence crée une nouvelle partie sans convertir l’ancienne.
+- Deux confrontations Miroir 50 et une Référence terminées dans le navigateur, sans plateau. Après rechargement, les compteurs conservés indiquent **3 au total, 2 Miroir 50 et 1 Référence**. Chaque filtre retrouve ses profils et ses résultats. Le statut « Prêt hors ligne » est affiché ; cette observation ne remplace pas un essai avec réseau réellement coupé.
+- **100 parties normales Miroir 50** exécutées par le CLI de production couvrent les 50 poses avec les deux premiers joueurs et reproduisent exactement les résultats de recherche : A 50/B 50, premier joueur 48, 96 fins complètes et 4 erreurs d’ordre, aucune partie inachevée.

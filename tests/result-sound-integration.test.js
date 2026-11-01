@@ -9,6 +9,7 @@ import { createSeries, seriesOf, seriesGameId, recordSeriesResult, createNextSer
 import { tokenTotal } from '../src/tokens.js';
 import { aiSpeedProfile } from '../src/ai-speed.js';
 import { getResultSound } from '../src/result-sound.js';
+import { getGameSet, gameSetIdForGeometry } from '../src/game-sets.js';
 
 const source = await readFile(new URL('../src/app.js', import.meta.url), 'utf8');
 function between(start, end) {
@@ -22,7 +23,8 @@ function between(start, end) {
 // Storage completion is controlled; sound output is observed at its public API.
 // Audio hardware/asset playback belongs to sound.test.js, while this suite
 // verifies when the app is permitted to disclose and announce the outcome.
-const routing = between('function playRevealedResultSound()', '\nfunction startingProtocolInfo(')
+const routing = between('const gameSetLabel =', '\n// Keep the controls connected')
+  + between('function playRevealedResultSound()', '\nfunction startingProtocolInfo(')
   + between('function renderSeriesSummary(', '\nfunction renderRules(')
   + between('async function confirmReveal()', '\nfunction interrupt(')
   + between('function interrupt()', "\ndocument.addEventListener('pointerdown'")
@@ -85,7 +87,7 @@ function harness(session = finished(), options = {}) {
     aiSpeed: options.aiSpeed ?? 'normal', selected: null, contacts: new Set(), keys: new Set(), blockers: new Set(),
     statisticsReturn: 'result', brand: '<div>CASCADO</div>',
     acceptReveal, isAIPlayer, getResultSound, seriesOf, recordSeriesResult, createNextSeriesGame, newSession,
-    tokenTotal, aiSpeedProfile,
+    tokenTotal, aiSpeedProfile, getGameSet, gameSetIdForGeometry,
     symbol: value => value, escape: value => String(value), focusFirst() {},
     seriesScore: () => '', speedSlot: () => '',
     hasAI: () => [0, 1].some(index => isAIPlayer(context.session.game, index)),

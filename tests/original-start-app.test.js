@@ -9,7 +9,9 @@ import { AI_LEVELS } from '../src/ai.js';
 import { configurePlayers, playerSettings, singleHumanIndex } from '../src/players.js';
 import { createSeries, seriesOf, seriesGameId, parseSeriesCount } from '../src/series.js';
 import { configureStartingPosition, normalizeStartConfig, ORIGINAL_START_MODE,
-  ORIGINAL_START_ANGLES, startingAnglesFor } from '../src/starting-position.js';
+  ORIGINAL_START_ANGLES, startingAnglesFor, MIROIR50_START_MODE, randomMiroir50Seed,
+  miroir50RematchSeed, miroir50ScheduleEntry } from '../src/starting-position.js';
+import { GAME_SETS, getGameSet, gameSetIdForGeometry } from '../src/game-sets.js';
 
 const source = await readFile(new URL('../src/app.js', import.meta.url), 'utf8');
 function between(start, end) {
@@ -58,6 +60,8 @@ function harness(saved = null, options = {}) {
   const context = vm.createContext({
     app, session: saved, mode: 'home', storageReady: options.storageReady ?? true, failed: false,
     GEOMETRY_VERSION, ORIGINAL_START_MODE, ORIGINAL_START_ANGLES, AI_LEVELS,
+    GAME_SETS, getGameSet, gameSetIdForGeometry, MIROIR50_START_MODE, randomMiroir50Seed, miroir50RematchSeed,
+    gameSetPreference: options.setPreference ?? 'reference',
     seriesCountPreference: 10, simulationModePreference: 'headless', startModePreference: options.preference ?? 'varied',
     aiGeneration: 0, selected: null, document: { hidden: false }, brand: '<div>CASCADO</div>',
     createGame, configurePlayers, playerSettings, newSession,
@@ -269,6 +273,72 @@ test('setup cannot replace or reconfigure a save before storage is ready', async
   const h = harness(saved, { storageReady: false });
   h.prepare(true);
   await h.submit();
+  assert.equal(h.context.session, saved);
+  assert.deepEqual(saved, snapshot);
+  assert.equal(h.calls.length, 0);
+  assert.equal(h.saves.length, 0);
+});
+
+for (const automatic of [false, true]) {
+  test(`${automatic ? 'automatic' : 'ordinary'} setup selects the exact Miroir 50 profile and pool before saving`, async () => {
+    const h = harness();
+    h.prepare(false, false, automatic);
+    assert.equal(h.defaults().get('game-set'), 'reference');
+    await h.submit({ 'game-set': 'miroir-50', 'start-mode': 'unknown', 'series-count': 100, starter: 1 });
+    const game = h.context.session.game;
+    assert.equal(game.gameSetId, 'miroir-50');
+    assert.equal(game.geometryVersion, getGameSet('miroir-50').geometryVersion);
+    assert.equal(game.startConfig.mode, MIROIR50_START_MODE);
+    assert.deepEqual(game.startingAngles, miroir50ScheduleEntry(0, 1).angles);
+    assert.equal(h.saves[0].session.game.startingPose.poseId, game.startingPose.poseId);
+    assert.equal(h.preferences.get('ddc-game-set'), 'miroir-50');
+    assert.equal(h.preferences.has('ddc-start-mode'), false);
+    assert.equal(h.context.app.dataset.gameSet, 'miroir-50');
+    assert.ok(game.faces.every(face => face.queue.length === 10));
+    if(automatic) assert.equal(game.series.target, 100);
+    else assert.equal(game.starter, 1);
+  });
+}
+
+test('Miroir 50 rematch complements the stored initial pose and reverses the starter without altering the save', async () => {
+  const game = configureStartingPosition(createGame(['A','B'], 1, getGameSet('miroir-50').geometryVersion), { mode:MIROIR50_START_MODE, seed:17 });
+  game.starter = 1;
+  rotate(game, 2, 15);
+  const saved = newSession(game);
+  const snapshot = structuredClone(saved);
+  const h = harness(saved);
+  await h.click('rematch');
+  assert.equal(h.defaults().get('game-set'), 'miroir-50');
+  assert.deepEqual(saved, snapshot);
+  await h.submit();
+  const next = h.context.session.game;
+  assert.equal(next.starter, 0);
+  assert.equal(next.startingPose.familyId, game.startingPose.familyId);
+  assert.notEqual(next.startingPose.role, game.startingPose.role);
+  assert.deepEqual(next.startingAngles, miroir50ScheduleEntry(miroir50RematchSeed(game), 1).angles);
+  assert.deepEqual(saved, snapshot);
+});
+
+test('invalid set selection never replaces the saved session or writes preferences', async () => {
+  const saved = sessionFor(ORIGINAL_START_MODE);
+  const snapshot = structuredClone(saved);
+  const h = harness(saved);
+  h.prepare(true);
+  await h.submit({ 'game-set':'miroir-500' });
+  assert.equal(h.context.session, saved);
+  assert.deepEqual(saved, snapshot);
+  assert.equal(h.saves.length, 0);
+  assert.equal(h.preferences.size, 0);
+});
+
+test('remembering Miroir 50 only selects a fresh setup and never changes a resumed Reference game', async () => {
+  const saved = sessionFor(ORIGINAL_START_MODE);
+  const snapshot = structuredClone(saved);
+  const h = harness(saved, {setPreference:'miroir-50'});
+  h.prepare(true);
+  assert.equal(h.defaults().get('game-set'), 'miroir-50');
+  await h.click('home');
+  await h.click('resume');
   assert.equal(h.context.session, saved);
   assert.deepEqual(saved, snapshot);
   assert.equal(h.calls.length, 0);

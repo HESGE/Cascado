@@ -1,8 +1,29 @@
 # Cascado — Spécifications de la PWA
 
-Version 1.28 · 31 octobre 2026 · Langue du produit : français
+Version 1.37 · 1er novembre 2026 · Langue du produit : français
 
 Statut : V1 développée à la demande de l’utilisateur le 28 octobre 2026. La version 1.23 retient **ddc-v1.5** pour les nouvelles parties : décalages estimés de la vidéo vers 298–299 s, deux entrées et deux séries de 1 à 5 sur chaque face. Ce gabarit ne prétend ni reproduire exactement le jeu filmé ni garantir l’équivalence des faces. Le seuil de passage reste de 20 unités libres sur 28. Les parties et séries déjà enregistrées en **ddc-v1.4** ou **ddc-v1.3** gardent leur calage, leur entrée unique et leurs cinq jetons. La version **1.28** rétablit les sons, ajoute un clic de cran à l’aimantation, renforce celle-ci et élargit la saisie autour des roues sans changer les règles de passage. Le glisser circulaire et l’alternative clavier sont conservés. Les preuves exécutées et essais restant à effectuer sont consignés dans la [fiche de recette](RECETTE-V1.md).
+
+### Choix du set — version 1.37
+
+Cette section étend les dispositions historiques ci-dessous : `ddc-v1.5` reste le mécanisme du set **Référence** ; une nouvelle partie peut aussi choisir **Miroir 50**. Les sections décrivant une version antérieure restent des références de compatibilité.
+
+| Set affiché | Identifiant | Géométrie | Décalages physiques des roues 1 à 5 | Départs |
+| --- | --- | --- | --- | --- |
+| Référence | `reference` | `ddc-v1.5` | 75°, 90°, 90°, 20°, 15° | Repères d’origine estimés, ancien départ Cascado ; départs variés aussi en duel automatique |
+| Miroir 50 | `miroir-50` | `ddc-miroir50-v1` | 180°, 0°, 90°, 45°, 36° | Lot immuable `miroir-50-v1` : 25 familles, chacune avec une pose de base et sa complémentaire, soit 50 positions |
+
+Les dimensions, centres, nombres d’encoches, formes des ouvertures, seuils de passage, liaisons, deux entrées et deux séries de cinq jetons sont identiques entre ces deux sets. Seuls les décalages des faces et le protocole de départ changent. Chaque vue, calcul de passage, aimantation, IA et simulation utilise la géométrie enregistrée dans sa partie. Aucun résultat n’est corrigé ni forcé.
+
+La sélection est effectuée avant le lancement et reste fixe pendant la partie ou la série. Une reprise conserve le set, les métadonnées du départ et les angles réellement atteints ; elle n’effectue aucun tirage ni réalignement. Les profils historiques `ddc-v1.3` et `ddc-v1.4` restent disponibles pour reprendre leurs parties et séries, sans conversion vers un set moderne. L’absence de nouvel identifiant dans une ancienne sauvegarde ne suffit pas à en changer la mécanique.
+
+Pour une partie Miroir 50, le tirage choisit uniformément une famille et l’une de ses deux poses, indépendamment du premier joueur choisi. La configuration enregistre le mode `miroir-50`, une graine entière non signée et `startingPose` avec l’identifiant de lot, la famille, la pose, son rôle et sa manche. La pose complémentaire est obtenue par θ + δ modulo 360°, sans retouche de l’état en cours. La revanche utilise cette complémentaire dans la même famille et inverse le premier joueur.
+
+Une série IA Miroir 50 garde le même set et la même graine. Les familles sont ordonnées de manière reproductible. Pour chaque famille, quatre manches font jouer pose de base / premier joueur S, pose complémentaire / 1−S, pose complémentaire / S, puis pose de base / 1−S, avec l’ordre initial des rôles fixé par la graine. Le premier joueur alterne à chaque manche ; les paires de revanche conservent la même famille et échangent les faces mécaniques. Cent manches couvrent les 50 positions avec les deux premiers joueurs. Un préfixe plus court ne représente pas le lot complet. Le lancement, les pauses, le nombre autorisé et la persistance restent ceux d’une série ordinaire.
+
+La commande sans navigateur accepte `--set reference|miroir-50`, avec `reference` par défaut. Le set Miroir 50 impose son protocole, au lieu d’accepter les départs classiques, variés ou photographiques de Référence. Le bilan JSON et chaque résultat ajoutent `gameSetId` et `gameSetLabel` ; les résultats Miroir 50 incluent leurs `startingAngles` et `startingPose`. Les statistiques globales restent consultables et ajoutent un détail par set ; les anciens totaux restent attribués à Référence. La remise à zéro porte sur les totaux et leurs détails, sans modifier la partie ou son bilan de série.
+
+Le lot fixe est la sélection déjà vérifiée sur 200 confrontations : 100 Normal/Normal et 100 Difficile/Difficile, chaque position avec les deux premiers joueurs. Le premier joueur gagnait respectivement 48 et 54 parties. Les 500 départs nouveaux des 2 000 essais ultérieurs ne sont pas ajoutés à ce lot. Leurs résultats montrent qu’un équilibre observé sur Miroir 50 ne s’étend pas automatiquement à tous les départs de sa géométrie. L’égalité des faces dans un protocole complémentaire est structurelle ; aucune équivalence de chaque pose, garantie en jeu humain ou solution optimale n’est revendiquée.
 
 ## 1. Intention et périmètre
 

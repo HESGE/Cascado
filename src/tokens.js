@@ -1,11 +1,10 @@
-import { GEOMETRY_VERSION, LEGACY_GEOMETRY_VERSION, wheelsFor } from './geometry.js';
+import { LEGACY_GEOMETRY_VERSION, hasTwoEntrances } from './geometry.js';
 
 /** IDs stay unique across the two separately ordered series. */
 export function tokenNumber(id) { return (id - 1) % 5 + 1; }
 export function tokenSeries(id) { return Math.floor((id - 1) / 5); }
 export function tokenTotal(geometryVersion = LEGACY_GEOMETRY_VERSION) {
-  wheelsFor(geometryVersion);
-  return geometryVersion === GEOMETRY_VERSION ? 10 : 5;
+  return hasTwoEntrances(geometryVersion) ? 10 : 5;
 }
 export function seriesCount(geometryVersion = LEGACY_GEOMETRY_VERSION) {
   return tokenTotal(geometryVersion) / 5;

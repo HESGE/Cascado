@@ -5,7 +5,9 @@ import { configurePlayers, isAIPlayer, playerSettings } from './players.js';
 import { newSession, acceptReveal, transmit } from './flow.js';
 import { GEOMETRY_VERSION, SUPPORTED_GEOMETRY_VERSIONS, WHEELS } from './geometry.js';
 import { tokenTotal } from './tokens.js';
-import { configureStartingPosition, isValidStartingPosition, ORIGINAL_START_MODE } from './starting-position.js';
+import { configureGameSet, isValidStartingPosition, ORIGINAL_START_MODE, MIROIR50_START_MODE,
+  miroir50ScheduleEntry } from './starting-position.js';
+import { getGameSet, gameSetIdForGeometry, isValidGameSet } from './game-sets.js';
 import { createSeries, parseSeriesCount, seriesGameId, seriesOf,
   recordSeriesResult, createNextSeriesGame } from './series.js';
 
@@ -24,6 +26,7 @@ export function isSimulationSession(session) {
       !wheel(game.engaged) || !wheel(game.lastWheel) ||
       !Array.isArray(game.angles) || game.angles.length !== 5 || !Array.from(game.angles).every(Number.isFinite) ||
       !Array.isArray(game.events) || !Array.isArray(game.faces) || game.faces.length !== 2) return false;
+  if (!isValidGameSet(game)) return false;
   const total = tokenTotal(game.geometryVersion);
   for (const face of game.faces) {
     if (!face || !Array.isArray(face.queue) || !Array.isArray(face.exited) ||
@@ -94,23 +97,33 @@ export function playSimulationTurn(session, { random = Math.random, keepEvents =
 }
 
 function settings({ count = 10, levels = ['normal', 'normal'], firstStarter = 0,
-  seed = 1, maxTurns = 10000, startMode = 'classic', geometryVersion = GEOMETRY_VERSION } = {}) {
+  seed = 1, maxTurns = 10000, startMode, geometryVersion, gameSetId } = {}) {
   const target = parseSeriesCount(count);
   if (target === null) throw new TypeError('Le nombre de parties doit être compris entre 1 et 1 000.');
   if (!Array.isArray(levels) || levels.length !== 2 || !levels.every(level => LEVELS.has(level))) {
     throw new TypeError('Chaque IA doit être easy, normal ou hard.');
   }
   if (![0, 1].includes(firstStarter)) throw new TypeError('Le premier joueur doit être 0 ou 1.');
-  if (!['classic', 'varied', ORIGINAL_START_MODE].includes(startMode)) {
-    throw new TypeError('Les départs doivent être classic, varied ou original-v1.');
-  }
+  let definition;
+  try { definition = getGameSet(gameSetId === undefined
+    ? gameSetIdForGeometry(geometryVersion ?? GEOMETRY_VERSION) : gameSetId); }
+  catch { throw new TypeError('Set de jeu incompatible.'); }
+  gameSetId = definition.id;
+  if (geometryVersion === undefined) geometryVersion = definition.geometryVersion;
   if (!SUPPORTED_GEOMETRY_VERSIONS.includes(geometryVersion)) throw new TypeError('Version de géométrie incompatible.');
+  if (!isValidGameSet({ gameSetId, geometryVersion })) throw new TypeError('Le set et la géométrie sont incompatibles.');
+  if (startMode === undefined) startMode = gameSetId === 'miroir-50' ? MIROIR50_START_MODE : 'classic';
+  if (gameSetId === 'miroir-50' ? startMode !== MIROIR50_START_MODE
+    : !['classic', 'varied', ORIGINAL_START_MODE].includes(startMode)) {
+    throw new TypeError('Miroir 50 exige son lot fixe ; Référence accepte classic, varied ou original-v1.');
+  }
   if (startMode === ORIGINAL_START_MODE && geometryVersion !== 'ddc-v1.5') {
     throw new TypeError('Le départ original-v1 exige le profil ddc-v1.5.');
   }
   if (!Number.isSafeInteger(seed)) throw new TypeError('La graine doit être un entier sûr.');
   if (!Number.isSafeInteger(maxTurns) || maxTurns < 1) throw new TypeError('La limite de tours doit être un entier positif.');
-  return { count: target, levels: [...levels], firstStarter, seed: seed >>> 0, maxTurns, startMode, geometryVersion };
+  return { count: target, levels: [...levels], firstStarter, seed: seed >>> 0, maxTurns, startMode, geometryVersion,
+    gameSetId, gameSetLabel: definition.label };
 }
 
 /**
@@ -125,18 +138,23 @@ export async function runSimulation(options = {}, hooks = {}) {
   for (const name of ['onProgress', 'shouldStop', 'yieldControl']) {
     if (hooks[name] !== undefined && typeof hooks[name] !== 'function') throw new TypeError(`Le rappel ${name} doit être une fonction.`);
   }
-  let game = configurePlayers(createGame(['IA 1', 'IA 2'], config.firstStarter, config.geometryVersion),
+  const firstStarter = config.firstStarter ^ (config.gameSetId === 'miroir-50'
+    ? miroir50ScheduleEntry(config.seed, 1).starterOffset : 0);
+  let game = configurePlayers(createGame(['IA 1', 'IA 2'], firstStarter, config.geometryVersion),
     config.levels.map(level => ({ controller: 'ai', level })));
-  game.starter = config.firstStarter;
+  game.starter = firstStarter;
   game.series = createSeries(config.count, { id: `simulation-${config.seed}`, firstStarter: config.firstStarter });
   game.statsId = seriesGameId(game.series);
-  configureStartingPosition(game, { mode: config.startMode, seed: config.seed }, game.series.round);
+  configureGameSet(game, config.gameSetId, { mode: config.startMode, seed: config.seed }, game.series.round);
   let session = newSession(game);
   const random = createSimulationRandom(config.seed);
   const results = [];
   const completedPositions = new Set();
   let turnsSinceYield = 0;
-  const startMetadata = () => config.startMode === 'varied' ? {
+  const setMetadata = { gameSetId: config.gameSetId, gameSetLabel: config.gameSetLabel };
+  const startMetadata = () => config.gameSetId === 'miroir-50' ? {
+    startingAngles: [...game.startingAngles], startingPose: { ...game.startingPose },
+  } : config.startMode === 'varied' ? {
     startingAngles: [...game.startingAngles], pair: Math.ceil(game.series.round / 2),
   } : config.startMode === ORIGINAL_START_MODE ? { startingAngles: [...game.startingAngles] } : {};
   const summary = (status, unfinished = null) => {
@@ -147,6 +165,7 @@ export async function runSimulation(options = {}, hooks = {}) {
       averageTurns: series.completed ? series.totalTurns / series.completed : 0,
       levels: [...config.levels], firstStarter: config.firstStarter, seed: config.seed,
       startMode: config.startMode, geometryVersion: config.geometryVersion,
+      ...setMetadata,
       positionCount: completedPositions.size,
       unfinished,
     };
@@ -156,6 +175,7 @@ export async function runSimulation(options = {}, hooks = {}) {
       turns: game.turn - 1, reason, ...startMetadata() } : null),
     results: results.map(result => ({ ...result,
       ...(result.startingAngles ? { startingAngles: [...result.startingAngles] } : {}),
+      ...(result.startingPose ? { startingPose: { ...result.startingPose } } : {}),
     })),
   });
   const progress = async () => {
@@ -171,10 +191,11 @@ export async function runSimulation(options = {}, hooks = {}) {
     turnsSinceYield += 1;
     if (step.status === 'result') {
       results.push({ number: game.series.round, starter: game.starter,
-        winner: game.verdict.winner, reason: game.verdict.reason, turns: game.turn - 1, ...startMetadata() });
+        winner: game.verdict.winner, reason: game.verdict.reason, turns: game.turn - 1, ...setMetadata, ...startMetadata() });
       // Each pair shares a reproducible starting position; only symmetric
       // mechanical profiles promise a complete exchange of the two faces.
-      completedPositions.add(config.startMode === 'varied' ? Math.ceil(game.series.round / 2) : 1);
+      completedPositions.add(config.gameSetId === 'miroir-50' ? game.startingPose.poseId
+        : config.startMode === 'varied' ? Math.ceil(game.series.round / 2) : 1);
       await progress();
       if (game.series.completed === config.count) return finish('completed');
       if (hooks.shouldStop && await hooks.shouldStop()) return finish('stopped');

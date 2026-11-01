@@ -69,7 +69,7 @@ function renderWheel(wheel, view, color) {
   return `<g class="board-wheel${selected ? ' is-selected' : ''}${allowed ? '' : ' is-forbidden'}" data-wheel="${id}"${rule ? ` data-wheel-rule="${rule}"` : ''} role="button" tabindex="${interactive ? '0' : '-1'}" aria-label="${escape(label)}" aria-disabled="${!interactive}" aria-pressed="${selected}">
     <circle class="wheel-well" cx="${x}" cy="${y}" r="${r + 2.5}" fill="#07384D"/>
     ${selected && !rule ? `<circle cx="${x}" cy="${y}" r="${r + 5}" fill="none" stroke="${color}" stroke-width="3"/>` : ''}
-    ${rule ? `<circle class="wheel-rule-ring" cx="${x}" cy="${y}" r="${r + 5}" fill="none" stroke="${ruleColor}" stroke-width="${rule === 'blocked' ? '4.5' : '3'}"${rule === 'upcoming' ? ' stroke-dasharray="5 4"' : ''}/>` : ''}
+    ${rule === 'upcoming' ? `<circle class="wheel-rule-ring" cx="${x}" cy="${y}" r="${r + 5}" fill="none" stroke="${ruleColor}" stroke-width="3" stroke-dasharray="5 4"/>` : ''}
     <g transform="translate(${x} ${y})"><g data-wheel-rotor="${id}" transform="rotate(${f(base)})">
       <mask id="wheel-cutout-${id}" maskUnits="userSpaceOnUse" x="${-r - 2}" y="${-r - 2}" width="${r * 2 + 4}" height="${r * 2 + 4}"><circle r="${r}" fill="white"/>${cutouts}</mask>
       <g mask="url(#wheel-cutout-${id})"><circle r="${r}" fill="${allowed ? 'url(#ivory-wheel)' : '#D2DCD5'}"/></g>

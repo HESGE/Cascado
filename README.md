@@ -1,6 +1,6 @@
 # Cascado — V1
 
-Version documentaire 1.38 · 1er novembre 2026
+Version documentaire 1.39 · 1er novembre 2026
 
 [Jouer à Cascado](https://hesge.github.io/Cascado/) · [Code source sur GitHub](https://github.com/HESGE/Cascado)
 
@@ -8,7 +8,7 @@ Le dépôt contient le jeu, ses ressources, ses tests et sa documentation. Les c
 
 PWA en français pour deux joueurs sur un smartphone, principalement en portrait 9:16. Chaque place peut être occupée par un humain ou une IA locale : humain contre humain, humain contre IA ou IA contre IA. Chaque joueur manipule sa face d’un mécanisme commun. Entre humains, le téléphone passe sous masque, puis le destinataire affiche son plateau avec un seul bouton ; les résultats suivent le même parcours. Face à une IA, le plateau de l’humain reste affiché pendant les deux tours, sans écran de passage.
 
-La version **1.38** rend les interdictions de roue plus visibles : contour rouge et cadenas pour la roue interdite ce tour, contour ambré pointillé et cadenas sur la roue engagée qui sera interdite à l’adversaire au prochain tour. Le texte précise le destinataire pendant les tours IA sur le plateau humain. Pour la roue 5, l’exception du dernier jeton est rappelée de façon générale, sans examiner les jetons cachés de l’adversaire. La sélection seule n’annonce aucune interdiction future ; les quatre roues indisponibles après engagement restent distinctes de l’interdiction de tour. Aucune mécanique n’est modifiée.
+La version **1.39** ajoute **« Partager l’application »** à l’accueil : QR code local, copie du lien public et partage natif lorsque le téléphone le permet. Tous ouvrent uniquement `https://hesge.github.io/Cascado/`, sans sauvegarde, noms ni données de partie. Le QR reste disponible hors ligne après mise en cache du jeu. La roue interdite ce tour conserve son cadenas, sans cercle rouge ; l’annonce ambrée du prochain tour et les règles du jeu sont conservées.
 
 La version **1.37** permet de choisir le **set de jeu** avant une nouvelle partie ou un duel automatique :
 

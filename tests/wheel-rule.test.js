@@ -127,7 +127,7 @@ test('after passing a real turn, exactly the previous wheel carries the blocked 
     assert.match(blocked[0], /aria-disabled="true"/);
     assert.match(blocked[0], /tabindex="-1"/);
     assert.equal((svg.match(/class="wheel-rule-lock"/g) ?? []).length, 1);
-    assert.equal((svg.match(/class="wheel-rule-ring"/g) ?? []).length, 1);
+    assert.doesNotMatch(svg, /class="wheel-rule-ring"/);
     assert.doesNotMatch(svg, /data-wheel-rule="upcoming"/);
   }
 });
@@ -153,6 +153,8 @@ test('an engaged wheel alone previews the next restriction; the other four give 
     }
     assert.doesNotMatch(svg, /data-wheel-rule="blocked"/);
     assert.equal((svg.match(/class="wheel-rule-lock"/g) ?? []).length, 1);
+    assert.equal((svg.match(/class="wheel-rule-ring"/g) ?? []).length, 1);
+    assert.match(svg, /class="wheel-rule-ring"[^>]*stroke="#FFD38A"[^>]*stroke-dasharray="5 4"/);
   }
 });
 

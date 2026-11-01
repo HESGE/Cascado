@@ -1,6 +1,7 @@
 import { createGame, rotate, getView, allowedWheels, upgradeGameGeometry } from './engine.js';
 import { renderBoard, wheelCenter, seriesAppearance } from './board.js';
 import { wheelRestrictionMessage } from './wheel-rule.js';
+import { APP_PUBLIC_URL, APP_QR_ASSET, copyAppLink, shareAppLink } from './share.js';
 import { animateBoard, cancelBoardMotion, boardMotionRemaining, retimeBoardMotion, finishBoardMotion } from './motion.js';
 import { createSoundPlayer, SOUND_PREFERENCE_KEY } from './sound.js';
 import { loadGame, saveGame, clearGame, loadStatistics, resetStatistics } from './storage.js';
@@ -52,6 +53,7 @@ let mode = 'loading';
 let selected = null;
 let storageReady = false;
 let statisticsRequest = 0;
+let shareRequest = 0;
 let statisticsReturn = 'home';
 let statisticsData = null;
 let statisticsSetFilter = 'all';
@@ -213,12 +215,50 @@ function renderHome() {
     <p class="eyebrow">UN TÉLÉPHONE · HUMAINS OU IA</p>
     <h1>À chacun<br>son côté.</h1>
     <p>Tournez les roues. Faites sortir vos deux séries de 1 à 5 dans l’ordre. Gardez votre plateau pour vous.</p>
-    <div class="actions">${session ? '<button class="primary" data-action="resume">Reprendre la partie</button>' : ''}<button class="${session ? 'secondary' : 'primary'}" data-action="new">Nouvelle partie</button><button class="secondary" data-action="automatic">Duel automatique</button><button class="secondary" data-action="rules">Comment jouer</button><button class="secondary" data-action="statistics">Statistiques</button></div>
+    <div class="actions">${session ? '<button class="primary" data-action="resume">Reprendre la partie</button>' : ''}<button class="${session ? 'secondary' : 'primary'}" data-action="new">Nouvelle partie</button><button class="secondary" data-action="automatic">Duel automatique</button><button class="secondary" data-action="rules">Comment jouer</button><button class="secondary" data-action="statistics">Statistiques</button><button class="secondary" data-action="share-app">Partager l’application</button></div>
     <div class="install-status" id="install-status">${offlineStatus()}</div>
     <button class="text-button" data-action="sound-help">Un problème de son ?</button>
     <button class="text-button" data-action="install">Installer sur mon téléphone</button>
     ${updateAvailable ? '<button class="secondary" data-action="update">Une mise à jour est disponible</button>' : ''}
-    <p class="muted local-note">Sans compte · Partie enregistrée sur cet appareil<br><span data-release>Version 1.38</span></p></section>`;
+    <p class="muted local-note">Sans compte · Partie enregistrée sur cet appareil<br><span data-release>Version 1.39</span></p></section>`;
+}
+
+function renderAppShare() {
+  stopMotion();
+  mode = 'app-share';
+  shareRequest++;
+  const nativeShare = typeof navigator.share === 'function';
+  app.innerHTML = `<section class="screen app-share">${brand}
+    <h1 tabindex="-1">Partager l’application</h1>
+    <p>Scanne ce QR code avec un autre téléphone pour ouvrir Cascado.</p>
+    <img class="app-share-qr" src="${APP_QR_ASSET}" width="740" height="740" alt="QR code pour ouvrir l’application Cascado">
+    <label class="field"><span>Lien de l’application</span><input id="app-share-link" type="url" readonly value="${APP_PUBLIC_URL}" spellcheck="false"></label>
+    <div class="actions">${nativeShare ? '<button class="primary" data-action="share-send">Partager le lien</button>' : ''}<button class="${nativeShare ? 'secondary' : 'primary'}" data-action="share-copy">Copier le lien</button></div>
+    <p class="muted app-share-status" id="share-status" role="status" aria-live="polite">Le lien ouvre l’application, sans données de partie.</p>
+    <button class="secondary" data-action="home">Retour à l’accueil</button></section>`;
+  focusFirst();
+}
+
+async function performAppShare(copyOnly = false) {
+  if(mode !== 'app-share') return;
+  const buttons = [...app.querySelectorAll('[data-action="share-send"], [data-action="share-copy"]')];
+  if(buttons.some(button => button.disabled)) return;
+  const request = ++shareRequest;
+  buttons.forEach(button => { button.disabled = true; });
+  const result = await (copyOnly ? copyAppLink() : shareAppLink());
+  if(mode !== 'app-share' || request !== shareRequest) return;
+  buttons.forEach(button => { button.disabled = false; });
+  app.querySelector('#share-status').textContent = {
+    shared: 'Lien partagé.',
+    copied: 'Lien copié ! Tu peux le coller dans un message.',
+    cancelled: 'Partage annulé.',
+    manual: 'Sélectionne le lien ci-dessus pour le copier.',
+  }[result];
+  if(result === 'manual') {
+    const input = app.querySelector('#app-share-link');
+    input.focus({ preventScroll: true });
+    input.select();
+  }
 }
 
 function cancelSoundTest() {
@@ -1205,6 +1245,9 @@ app.addEventListener('click',async event=>{
       break;
     case 'home':stopMotion();renderHome();break;
     case 'rules':renderRules();break;
+    case 'share-app':if(mode==='home')renderAppShare();break;
+    case 'share-send':await performAppShare();break;
+    case 'share-copy':await performAppShare(true);break;
     case 'sound-help':if(mode==='home')renderSoundHelp();break;
     case 'sound-test':await testSound();break;
     case 'statistics':if(['home','result'].includes(mode))await renderStatistics();break;

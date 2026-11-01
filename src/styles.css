@@ -84,6 +84,10 @@ p { line-height: 1.5; }
 .home-emblem { align-self: center; display: grid; place-items: center; margin-top: 24px; width: 110px; height: 110px; color: var(--paper); background: var(--blue); border-radius: 30px; font-size: 5rem; line-height: 1; }
 .text-button { min-height: 44px; padding: 8px 12px; color: var(--navy); background: transparent; font-size: .875rem; text-decoration: underline; text-underline-offset: 4px; }
 .local-note { text-align: center; font-size: .72rem; }
+.app-share { display:flex; flex-direction:column; gap:16px; }
+.app-share h1 { font-size:clamp(1.5rem, 6.5vw, 1.85rem); }
+.app-share-qr { display:block; align-self:center; width:min(240px, 100%); height:auto; aspect-ratio:1; background:#fff; }
+.app-share-status { min-height:2.8em; font-size:.8rem; }
 .replacement-note { color: #80552e; font-size: .8rem; line-height: 1.4; }
 .home .actions { margin-top: auto; padding-top: 18px; }
 .home .lead { font-size: 1.05rem; }

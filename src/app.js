@@ -1,5 +1,6 @@
 import { createGame, rotate, getView, allowedWheels, upgradeGameGeometry } from './engine.js';
 import { renderBoard, wheelCenter, seriesAppearance } from './board.js';
+import { wheelRestrictionMessage } from './wheel-rule.js';
 import { animateBoard, cancelBoardMotion, boardMotionRemaining, retimeBoardMotion, finishBoardMotion } from './motion.js';
 import { createSoundPlayer, SOUND_PREFERENCE_KEY } from './sound.js';
 import { loadGame, saveGame, clearGame, loadStatistics, resetStatistics } from './storage.js';
@@ -217,7 +218,7 @@ function renderHome() {
     <button class="text-button" data-action="sound-help">Un problème de son ?</button>
     <button class="text-button" data-action="install">Installer sur mon téléphone</button>
     ${updateAvailable ? '<button class="secondary" data-action="update">Une mise à jour est disponible</button>' : ''}
-    <p class="muted local-note">Sans compte · Partie enregistrée sur cet appareil<br><span data-release>Version 1.37</span></p></section>`;
+    <p class="muted local-note">Sans compte · Partie enregistrée sur cet appareil<br><span data-release>Version 1.38</span></p></section>`;
 }
 
 function cancelSoundTest() {
@@ -530,7 +531,7 @@ function renderPlay(spectate = false) {
     <span class="game-set-tag" data-game-set-label>${escape(gameSetLabel(session.game))}</span>
     <div class="progress"></div>
     <div class="board-wrap">${renderBoard({...view, selected, readOnly:spectate}, {opponentProgress:getOpponentProgress(session.game,view.faceIndex)})}</div>
-    <div class="wheel-status"><span id="selection-label"></span><span id="restriction-label"></span></div>
+    <div class="wheel-status"><span id="selection-label"></span><span id="restriction-label" role="status" aria-live="polite" aria-atomic="true"></span></div>
     <p class="alignment-help" id="alignment-help"></p>
     <div class="rotation-row"><div class="surface-help" id="rotation-readout" role="slider" tabindex="-1" aria-label="Rotation de la roue sélectionnée, flèches gauche et droite" aria-describedby="alignment-help" aria-valuemin="0" aria-valuemax="360" aria-valuenow="0" aria-disabled="true"></div>${mixed ? speedSlot(true) : ''}</div>
     ${spectate && !mixed ? speedSlot(false,true) : `<button class="primary end-turn" data-action="end" disabled>${mixed ? 'Terminer mon tour' : 'Terminer et masquer'}</button>`}<p class="sr-only" id="play-message" aria-live="polite"></p>
@@ -556,7 +557,13 @@ function updatePlayUI(view = displayedView()) {
   }).join('');
   app.querySelector('.progress').innerHTML = `<span><span class="next-label">${view.totalTokens > 5 ? 'PROCHAINS' : 'PROCHAIN JETON'}</span> <span class="series-next">${nextTokens}</span></span><span>${view.exited.length} / ${view.totalTokens} arrivés</span>`;
   app.querySelector('#selection-label').textContent = selected ? `Roue ${selected} ${session.game.engaged ? 'engagée' : 'sélectionnée'}` : spectate ? 'L’IA réfléchit…' : 'Choisis une roue';
-  app.querySelector('#restriction-label').textContent = spectate ? `IA · ${levelLabel(playerSettings(session.game.players[session.game.active]).level)}` : view.lastWheel && !view.allowedWheels.includes(view.lastWheel) && !session.game.engaged ? `♙ ${view.lastWheel} interdite` : 'Rotation au doigt';
+  const rule = wheelRestrictionMessage(view,{watchingOpponent:view.faceIndex !== session.game.active});
+  const ruleText = rule.text || (spectate ? `IA · ${levelLabel(playerSettings(session.game.players[session.game.active]).level)}` : 'Rotation au doigt');
+  const ruleLabel = app.querySelector('#restriction-label');
+  if(ruleLabel.textContent !== ruleText) ruleLabel.textContent = ruleText;
+  const ruleStatus = app.querySelector('.wheel-status');
+  ruleStatus.dataset.wheelRule = rule.kind;
+  ruleStatus.classList.toggle('has-wheel-rule',rule.kind !== 'none');
   app.querySelector('#alignment-help').textContent = spectate ? (app.dataset.aiPhase === 'falling' ? (mixed ? 'Tes jetons descendent…' : 'Les jetons descendent…') : app.dataset.aiPhase === 'settling' ? 'Le mouvement est terminé.' : selected && app.dataset.aiPhase !== 'thinking' ? `L’IA ${app.dataset.aiPhase === 'selected' ? 'choisit' : 'tourne'} la roue ${selected}.` : 'L’IA prépare son mouvement…') : alignmentHint(view,selected);
   const end = app.querySelector('[data-action="end"]');
   if(end) {
@@ -660,14 +667,16 @@ const applyRotation=localDelta=>applyRotations([localDelta]);
 function announce(message) {
   if(mode!=='play')return;
   app.querySelector('#selection-label').textContent=message;
-  app.querySelector('#play-message').textContent=message;
+  const status = app.querySelector('.wheel-status');
+  if(status?.dataset?.wheelRule && status.dataset.wheelRule !== 'none') app.querySelector('#restriction-label').textContent=message;
+  else app.querySelector('#play-message').textContent=message;
 }
 
 function selectWheel(id, focus = false) {
   if(mode!=='play')return false;
   if(surfacePress?.kind==='pointer')return false;
   if(session.game.engaged && session.game.engaged!==id){announce(`Continue sur la roue ${session.game.engaged}.`);return false;}
-  if(!allowedWheels(session.game).includes(id)){announce(`Roue ${id} : jouée au tour précédent.`);return false;}
+  if(!allowedWheels(session.game).includes(id)){announce(`Roue ${id} interdite : l’adversaire vient de la jouer.`);return false;}
   if(selected===id){
     sound.unlock();
     if(focus)app.querySelector('#rotation-readout').focus({preventScroll:true});

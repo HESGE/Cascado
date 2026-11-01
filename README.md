@@ -1,12 +1,14 @@
 # Cascado — V1
 
-Version documentaire 1.37 · 1er novembre 2026
+Version documentaire 1.38 · 1er novembre 2026
 
 [Jouer à Cascado](https://hesge.github.io/Cascado/) · [Code source sur GitHub](https://github.com/HESGE/Cascado)
 
 Le dépôt contient le jeu, ses ressources, ses tests et sa documentation. Les captures de recette, archives de déploiement et paramètres locaux d’hébergement restent hors du dépôt. Le jeu est accessible sur GitHub Pages à l’adresse ci-dessus. Chaque mise à jour de `main` vérifie le projet, exécute les tests et publie uniquement le contenu statique de `dist/`. Le déploiement peut aussi être relancé depuis l’onglet Actions du dépôt.
 
 PWA en français pour deux joueurs sur un smartphone, principalement en portrait 9:16. Chaque place peut être occupée par un humain ou une IA locale : humain contre humain, humain contre IA ou IA contre IA. Chaque joueur manipule sa face d’un mécanisme commun. Entre humains, le téléphone passe sous masque, puis le destinataire affiche son plateau avec un seul bouton ; les résultats suivent le même parcours. Face à une IA, le plateau de l’humain reste affiché pendant les deux tours, sans écran de passage.
+
+La version **1.38** rend les interdictions de roue plus visibles : contour rouge et cadenas pour la roue interdite ce tour, contour ambré pointillé et cadenas sur la roue engagée qui sera interdite à l’adversaire au prochain tour. Le texte précise le destinataire pendant les tours IA sur le plateau humain. Pour la roue 5, l’exception du dernier jeton est rappelée de façon générale, sans examiner les jetons cachés de l’adversaire. La sélection seule n’annonce aucune interdiction future ; les quatre roues indisponibles après engagement restent distinctes de l’interdiction de tour. Aucune mécanique n’est modifiée.
 
 La version **1.37** permet de choisir le **set de jeu** avant une nouvelle partie ou un duel automatique :
 

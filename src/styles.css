@@ -476,3 +476,10 @@ body:has(.play) #ai-speed-panel button {
 [data-reference-start] { display:grid; gap:10px; min-width:0; }
 
 .play > .game-set-tag { position:absolute; top:calc(30px + var(--safe-top)); left:var(--edge); margin:0; color:#d6e9ed; font-size:.58rem; line-height:1.2; pointer-events:none; z-index:2; }
+
+/* The inherited ban and the next-turn preview have separate visual meanings. */
+.wheel-rule-ring, .wheel-rule-lock { pointer-events:none; }
+.play .wheel-status.has-wheel-rule { justify-content:flex-start; }
+.wheel-status.has-wheel-rule #selection-label { position:absolute; width:1px; height:1px; overflow:hidden; clip-path:inset(50%); white-space:nowrap; }
+.play .wheel-status.has-wheel-rule #restriction-label { flex:1; min-width:0; color:#ffd38a; font-size:.68rem; font-weight:650; text-align:left; }
+.play .wheel-status[data-wheel-rule="blocked"] #restriction-label { color:#ffb1a8; }

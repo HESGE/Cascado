@@ -7,6 +7,7 @@ import { tokenPositions } from './motion.js';
 import { renderOpponentProgress } from './opponent-progress.js';
 import { passageStates, endGateStates } from './alignment.js';
 import { tokenNumber, tokenSeries, tokenTotal, seriesCount, nextBySeries } from './tokens.js';
+import { wheelRestriction } from './wheel-rule.js';
 
 const WHEELS = geometryWheels.map(wheel => ({ ...wheel, r: wheel.radius, n: wheel.notches }));
 const LINKS = geometryLinks.map(({ from, to }) => [from, to]);
@@ -52,21 +53,29 @@ function renderWheel(wheel, view, color) {
   const direction = view.faceIndex === 1 ? -1 : 1;
   const selected = (view.selected ?? view.engaged) === id;
   const allowed = (view.allowedWheels ?? [1, 2, 3, 4, 5]).includes(id);
+  const restriction = wheelRestriction(view);
+  const rule = restriction.blockedWheel === id ? 'blocked' : restriction.upcomingWheel === id ? 'upcoming' : null;
+  const ruleColor = rule === 'blocked' ? '#FF9B91' : '#FFD38A';
   const interactive = allowed && !view.readOnly;
   const slots = view.slots?.[id - 1] ?? [];
   const cutouts = Array.from({ length: n }, (_, k) => `<g transform="rotate(${f(direction * k * 360 / n)})"><circle cx="${r - NOTCH_RADIUS}" r="${NOTCH_RADIUS}" fill="black"/><rect x="${r - NOTCH_RADIUS}" y="${-NOTCH_RADIUS}" width="40" height="${2*NOTCH_RADIUS}" fill="black"/></g>`).join('');
   const ownTokens = slots.filter(value => Number.isInteger(value) && value >= 1 && value <= tokenTotal(geometryOf(view)))
     .map(value => seriesCount(geometryOf(view)) > 1 ? `${tokenNumber(value)}, ${seriesAppearance(view, tokenSeries(value)).label}` : String(value));
   const contents = ownTokens.length ? `, jeton${ownTokens.length > 1 ? 's' : ''} ${ownTokens.join(', ')}` : ', vide';
-  const label = `Roue ${id}${view.engaged === id ? ', engagée pour ce tour' : selected ? ', sélectionnée' : ''}${allowed ? '' : ', interdite pour ce tour'}${contents}`;
-  return `<g class="board-wheel${selected ? ' is-selected' : ''}${allowed ? '' : ' is-forbidden'}" data-wheel="${id}" role="button" tabindex="${interactive ? '0' : '-1'}" aria-label="${escape(label)}" aria-disabled="${!interactive}" aria-pressed="${selected}">
+  const unavailable = allowed ? '' : rule === 'blocked' ? ', interdite pour ce tour'
+    : view.engaged ? `, indisponible : continue sur la roue ${view.engaged}` : ', indisponible pour ce tour';
+  const nextRule = rule === 'upcoming' ? `, interdite au prochain tour${id === 5 ? ' sauf dernier jeton' : ''}` : '';
+  const label = `Roue ${id}${view.engaged === id ? ', engagée pour ce tour' : selected ? ', sélectionnée' : ''}${unavailable}${nextRule}${contents}`;
+  return `<g class="board-wheel${selected ? ' is-selected' : ''}${allowed ? '' : ' is-forbidden'}" data-wheel="${id}"${rule ? ` data-wheel-rule="${rule}"` : ''} role="button" tabindex="${interactive ? '0' : '-1'}" aria-label="${escape(label)}" aria-disabled="${!interactive}" aria-pressed="${selected}">
     <circle class="wheel-well" cx="${x}" cy="${y}" r="${r + 2.5}" fill="#07384D"/>
-    ${selected ? `<circle cx="${x}" cy="${y}" r="${r + 5}" fill="none" stroke="${color}" stroke-width="3"/>` : ''}
+    ${selected && !rule ? `<circle cx="${x}" cy="${y}" r="${r + 5}" fill="none" stroke="${color}" stroke-width="3"/>` : ''}
+    ${rule ? `<circle class="wheel-rule-ring" cx="${x}" cy="${y}" r="${r + 5}" fill="none" stroke="${ruleColor}" stroke-width="${rule === 'blocked' ? '4.5' : '3'}"${rule === 'upcoming' ? ' stroke-dasharray="5 4"' : ''}/>` : ''}
     <g transform="translate(${x} ${y})"><g data-wheel-rotor="${id}" transform="rotate(${f(base)})">
       <mask id="wheel-cutout-${id}" maskUnits="userSpaceOnUse" x="${-r - 2}" y="${-r - 2}" width="${r * 2 + 4}" height="${r * 2 + 4}"><circle r="${r}" fill="white"/>${cutouts}</mask>
       <g mask="url(#wheel-cutout-${id})"><circle r="${r}" fill="${allowed ? 'url(#ivory-wheel)' : '#D2DCD5'}"/></g>
     </g></g>
     <circle cx="${x}" cy="${y + 1.8}" r="11" fill="#032F43" opacity=".16"/><circle cx="${x}" cy="${y}" r="11" fill="url(#wheel-hub)"/><circle cx="${x}" cy="${y}" r="3" fill="#91A2A1"/>
+    ${rule ? `<g class="wheel-rule-lock" transform="translate(${x} ${y})" aria-hidden="true"><circle r="15" fill="${rule === 'blocked' ? '#963C36' : '#795317'}" stroke="${ruleColor}" stroke-width="2"/><path d="M-4.5-1v-4a4.5 4.5 0 0 1 9 0v4" fill="none" stroke="#FFFCF5" stroke-width="2.5" stroke-linecap="round"/><rect x="-6.5" y="-1" width="13" height="10" rx="2" fill="#FFFCF5"/><path d="M0 2v3" stroke="${rule === 'blocked' ? '#963C36' : '#795317'}" stroke-width="2" stroke-linecap="round"/></g>` : ''}
     <circle class="wheel-focus" cx="${x}" cy="${y}" r="${r + 1}" fill="none" stroke="#FFFFFF" stroke-width="3" stroke-dasharray="4 3"/>
     <circle class="wheel-hit" cx="${x}" cy="${y}" r="${r}" fill="transparent"/>
   </g>`;
@@ -113,7 +122,12 @@ export function renderBoard(view, { opponentProgress = null } = {}) {
     const path = `M${f(tail.x)} ${f(tail.y)}L${f(head.x)} ${f(head.y)}L${f(180 + dx)} ${f(101 + dy)}`;
     return `<path data-queue-lane="${lane}" d="${path}"/><path d="${path}" stroke="${seriesAppearance(view, lane).color}" stroke-opacity=".55" stroke-width="1.4"/>`;
   }).join('') : '<path d="M52 19L180 40V78"/><path d="M52 19L180 40" stroke="#3C87A0" stroke-width="1.4"/>';
-  const wheelLabels = [[250, 80], [317, 169], [75, 251], [330, 300], [28, 364]].map(([x, y], index) => `<text x="${mirror(x)}" y="${y}" fill="#B0D3DD" font-size="23" font-weight="550" text-anchor="middle">${index + 1}</text>`).join('');
+  const restriction = wheelRestriction(view);
+  const wheelLabels = [[250, 80], [317, 169], [75, 251], [330, 300], [28, 364]].map(([x, y], index) => {
+    const blocked = restriction.blockedWheel === index + 1;
+    const upcoming = restriction.upcomingWheel === index + 1;
+    return `<text x="${mirror(x)}" y="${y}" fill="${blocked ? '#FF9B91' : upcoming ? '#FFD38A' : '#B0D3DD'}" font-size="23" font-weight="${blocked || upcoming ? '800' : '550'}" text-anchor="middle">${index + 1}</text>`;
+  }).join('');
   const following = lanes > 1 ? nextBySeries(view, version).map((next, lane) =>
     `${seriesAppearance(view, lane).label} ${next > 5 ? 'sortie' : `prochain jeton ${next}`}`).join(', ')
     : number(view.next) > 5 ? 'série sortie' : `prochain jeton ${Math.trunc(number(view.next)) || 1}`;

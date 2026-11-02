@@ -54,6 +54,26 @@ test('simulation snapshot validation preserves ten unique tokens per face and re
   }
 });
 
+test('Expert levels remain valid in resumed worker snapshots and complete an actual terminal turn', () => {
+  for (const level of ['easy', 'normal', 'hard', 'expert']) {
+    assert.equal(isSimulationSession(JSON.parse(JSON.stringify(session(0, [level, 'expert'])))), true);
+  }
+  for (const starter of [0, 1]) {
+    const state = nearResult(starter);
+    configurePlayers(state.game, [{ controller: 'ai', level: 'expert' }, { controller: 'ai', level: 'expert' }]);
+    const restored = JSON.parse(JSON.stringify(state));
+    assert.equal(isSimulationSession(restored), true);
+    const step = playSimulationTurn(restored, { random: () => 0 });
+    assert.equal(step.status, 'result');
+    assert.equal(step.player, starter);
+    assert.equal(step.counted, true);
+    assert.deepEqual(restored.game.players.map(player => player.level), ['expert', 'expert']);
+    assert.equal(restored.game.verdict.winner, starter);
+    assert.equal(restored.game.verdict.reason, 'complete');
+    assert.equal(restored.game.series.completed, 1);
+  }
+});
+
 test('seeded easy randomness is reproducible and exposes a restorable unsigned state', () => {
   const first = createSimulationRandom(42);
   const second = createSimulationRandom(42);
@@ -166,6 +186,17 @@ test('turn limits leave an explicitly unfinished match without inventing an outc
   assert.equal(report.draws, 0);
   assert.deepEqual(report.results, []);
   assert.deepEqual(report.unfinished, { round: 1, starter: 0, turns: 1, reason: 'turn-limit' });
+});
+
+test('fresh Expert simulations retain both levels and the real bounded-turn reporting', async () => {
+  const report = await runSimulation({ count: 1, levels: ['expert', 'expert'], firstStarter: 1, seed: 42, maxTurns: 1 });
+  assert.deepEqual(report.levels, ['expert', 'expert']);
+  assert.equal(report.status, 'incomplete');
+  assert.equal(report.totalTurns, 0, 'only completed games contribute terminal totals');
+  assert.equal(report.completed, 0);
+  assert.equal(report.draws, 0);
+  assert.deepEqual(report.results, []);
+  assert.deepEqual(report.unfinished, { round: 1, starter: 1, turns: 1, reason: 'turn-limit' });
 });
 
 test('cancellation before and during a match never credits it, and host yields remain controllable', async () => {
@@ -338,6 +369,19 @@ test('the CLI distinguishes unfinished simulations from invalid arguments', () =
     assert.match(invalid.stderr, /Erreur/);
   }
   assert.match(command(['--help']).stdout, /sans interface graphique/);
+});
+
+test('the CLI advertises Expert and preserves it on both seats without inventing a capped result', () => {
+  const result = command(['--games', '1', '--ai1', 'expert', '--ai2', 'expert', '--max-turns', '1', '--seed', '42', '--json']);
+  assert.equal(result.status, 1, result.stderr);
+  assert.equal(result.stderr, '');
+  const report = JSON.parse(result.stdout);
+  assert.deepEqual(report.levels, ['expert', 'expert']);
+  assert.equal(report.status, 'incomplete');
+  assert.equal(report.completed, 0);
+  assert.equal(report.unfinished.turns, 1);
+  assert.equal(report.unfinished.reason, 'turn-limit');
+  assert.match(command(['--help']).stdout, /easy, normal, hard ou expert/);
 });
 
 test('CLI varied starts report each paired position and preserve reproducibility', () => {

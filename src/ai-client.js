@@ -103,7 +103,7 @@ export function createAIClient({
     return new Promise(resolve => {
       const job = {
         requestId: ++sequence, view: projection,
-        level: ['easy', 'normal', 'hard'].includes(level) ? level : 'normal',
+        level: ['easy', 'normal', 'hard', 'expert'].includes(level) ? level : 'normal',
         resolve, worker: null, timer: null, fallbackTimer: null, fallbackStarted: false,
       };
       active = job;

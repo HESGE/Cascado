@@ -10,9 +10,9 @@ test('les anciennes parties gardent deux joueurs humains de niveau normal', () =
   assert.equal(isAIPlayer(game, 1), false);
 });
 
-test('les trois niveaux sont conservés sur chacun des contrôleurs reconnus', () => {
+test('les quatre niveaux sont conservés sur chacun des contrôleurs reconnus', () => {
   for (const controller of ['human', 'ai']) {
-    for (const level of ['easy', 'normal', 'hard']) {
+    for (const level of ['easy', 'normal', 'hard', 'expert']) {
       assert.deepEqual(playerSettings({ controller, level }), { controller, level });
     }
   }
@@ -87,14 +87,21 @@ test('un indice de joueur incorrect ne sélectionne jamais une IA', () => {
 });
 
 test('les réglages restent lisibles après une sauvegarde JSON', () => {
-  const game = configurePlayers(createGame(), [
-    { controller: 'ai', level: 'easy' },
-    { controller: 'ai', level: 'hard' },
-  ]);
-  const restored = JSON.parse(JSON.stringify(game));
-  assert.deepEqual(restored.players, game.players);
-  assert.equal(isAIPlayer(restored, 0), true);
-  assert.deepEqual(playerSettings(restored.players[1]), { controller: 'ai', level: 'hard' });
+  for (const level of ['easy', 'normal', 'hard', 'expert']) {
+    const game = configurePlayers(createGame(), [
+      { controller: 'ai', level },
+      { controller: 'ai', level: 'expert' },
+    ]);
+    const restored = JSON.parse(JSON.stringify(game));
+    assert.deepEqual(restored.players, game.players);
+    assert.equal(isAIPlayer(restored, 0), true);
+    assert.deepEqual(playerSettings(restored.players[0]), { controller: 'ai', level });
+    assert.deepEqual(playerSettings(restored.players[1]), { controller: 'ai', level: 'expert' });
+    for (const active of [0, 1]) {
+      restored.active = active;
+      assert.equal(displayedFaceIndex(restored), active);
+    }
+  }
 });
 
 test('un duel humain contre IA garde la face humaine quel que soit le joueur actif', () => {

@@ -3,6 +3,7 @@ import { createGame, rotate } from './engine.js';
 import {
   WHEELS, OUTPUT_GATE, gates, inputGates, normalizeAngle, physicalAngleFor,
   notchAngle, angularDistance, SUPPORTED_GEOMETRY_VERSIONS, LEGACY_GEOMETRY_VERSION,
+  MIRROR_GEOMETRY_VERSION,
 } from './geometry.js';
 import { tokenSeries, tokenTotal, queueLanes, nextBySeries } from './tokens.js';
 
@@ -10,6 +11,7 @@ export const AI_LEVELS = Object.freeze([
   Object.freeze({ id: 'easy', label: 'Facile' }),
   Object.freeze({ id: 'normal', label: 'Normal' }),
   Object.freeze({ id: 'hard', label: 'Difficile' }),
+  Object.freeze({ id: 'expert', label: 'Expert' }),
 ]);
 
 const FACE_GATES = [gates(0), gates(1)];
@@ -20,7 +22,12 @@ const CONFIG = {
   normal: { depth: 2, beam: 3 },
   // One more own move exposes downstream preparation beyond the next transfer.
   hard: { depth: 4, beam: 4 },
+  // Deeper preparation with a narrower branch set, using the same own view.
+  expert: { depth: 5, beam: 3 },
 };
+// The symmetric set benefits from comparing more routes over a shorter horizon:
+// intervening shared rotations can invalidate distant own-board preparation.
+const MIRROR_EXPERT_CONFIG = Object.freeze({ depth: 3, beam: 6 });
 
 function virtualGame(view) {
   const geometryVersion = view.geometryVersion ?? LEGACY_GEOMETRY_VERSION;
@@ -192,7 +199,8 @@ export function chooseAIMove(view, level = 'normal', options = {}) {
       !SUPPORTED_GEOMETRY_VERSIONS.includes(view.geometryVersion)) return null;
   const legal = [...new Set(view.allowedWheels)].filter(wheel => Number.isInteger(wheel) && wheel >= 1 && wheel <= 5);
   if (!legal.length) return null;
-  const config = CONFIG[level] ?? CONFIG.normal;
+  const config = level === 'expert' && view.geometryVersion === MIRROR_GEOMETRY_VERSION
+    ? MIRROR_EXPERT_CONFIG : CONFIG[level] ?? CONFIG.normal;
   const state = virtualGame(view);
   const ranked = rankedMoves(state, legal);
   const safe = ranked.filter(move => move.value > -1e9);

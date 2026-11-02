@@ -68,7 +68,7 @@ function normalizeTotals(value) {
   const profiles = value.profiles.map(profile => {
     if (!profile || typeof profile.name !== 'string' || !profile.name.trim() ||
         !['human', 'ai'].includes(profile.controller) ||
-        (profile.controller === 'human' ? profile.level !== null : !['easy', 'normal', 'hard'].includes(profile.level)) ||
+        (profile.controller === 'human' ? profile.level !== null : !['easy', 'normal', 'hard', 'expert'].includes(profile.level)) ||
         !COUNTERS.every(key => count(profile[key])) ||
         profile.wins + profile.losses + profile.draws !== profile.played) {
       throw new TypeError('Un profil statistique local est incompatible.');

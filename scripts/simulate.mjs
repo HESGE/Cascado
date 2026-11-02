@@ -7,8 +7,8 @@ const usage = `Cascado — confrontations sans interface graphique
 Usage : npm run simulate -- --games 10 --ai1 normal --ai2 hard --seed 42
 
   --games N       De 1 à 1 000 parties (10 par défaut)
-  --ai1 NIVEAU    easy, normal ou hard (normal par défaut)
-  --ai2 NIVEAU    easy, normal ou hard (normal par défaut)
+  --ai1 NIVEAU    easy, normal, hard ou expert (normal par défaut)
+  --ai2 NIVEAU    easy, normal, hard ou expert (normal par défaut)
   --seed ENTIER   Graine reproductible des départs et des IA faciles (1 par défaut)
   --set SET       reference ou miroir-50 (reference par défaut)
   --starts MODE   classic : ancien neutre à zéro ; varied : même pose par paire ; original : départ reconstitué estimé (classic par défaut)

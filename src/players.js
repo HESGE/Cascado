@@ -1,5 +1,5 @@
 const CONTROLLERS = new Set(['human', 'ai']);
-const LEVELS = new Set(['easy', 'normal', 'hard']);
+const LEVELS = new Set(['easy', 'normal', 'hard', 'expert']);
 
 /** Old saves without a controller stay human; unknown options use safe defaults. */
 export function playerSettings(player) {

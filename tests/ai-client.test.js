@@ -126,6 +126,27 @@ test('AI client: unsupported workers defer the fallback and can cancel it first'
   assert.equal(r.fallbackCalls[0].level, 'normal');
 });
 
+test('AI client preserves every saved level through a worker failure and its local fallback', async () => {
+  for (const level of ['easy', 'normal', 'hard', 'expert']) {
+    const r = rig();
+    const pending = r.client.choose(view(), level);
+    const worker = r.workers[0];
+    assert.equal(worker.message.level, level);
+    worker.onerror({ preventDefault() {} });
+    assert.equal(worker.terminated, true);
+    r.fire(0); await tick();
+    assert.deepEqual(await pending, move);
+    assert.equal(r.fallbackCalls.length, 1);
+    assert.equal(r.fallbackCalls[0].level, level);
+    assert.deepEqual(r.fallbackCalls[0].projection, worker.message.view);
+  }
+  const r = rig();
+  const pending = r.client.choose(view(), 'future');
+  assert.equal(r.workers[0].message.level, 'normal');
+  r.workers[0].reply();
+  assert.deepEqual(await pending, move);
+});
+
 test('AI client: worker construction or sending failures use the bounded fallback', async () => {
   for (const WorkerClass of [
     class { constructor() { throw new Error('blocked'); } },

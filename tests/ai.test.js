@@ -9,6 +9,9 @@ import { tokenSeries, tokenNumber, tokenTotal, nextBySeries } from '../src/token
 // Retain the established five-token scenarios as a v1.4 regression suite.
 const createGame = (players, starter, version = PREVIOUS_GEOMETRY_VERSION) => createVersionedGame(players, starter, version);
 const physicalAngleFor = (...args) => versionedPhysicalAngleFor(...args, PREVIOUS_GEOMETRY_VERSION);
+// Keep the established exhaustive completion matrices at their original cost.
+// Expert is covered by the shared single-turn checks and its focused suite.
+const PREVIOUS_LEVELS = AI_LEVELS.filter(level => level.id !== 'expert');
 
 function emptyGame(face = 0) {
   const state = createGame(['A', 'B'], face);
@@ -37,9 +40,10 @@ function seededRandom(initial) {
   return () => ((seed = (1664525 * seed + 1013904223) >>> 0) / 4294967296);
 }
 
-test('the three offline levels have stable saved identifiers and French labels', () => {
+test('the four offline levels have stable saved identifiers and French labels', () => {
   assert.deepEqual(AI_LEVELS, [
     { id: 'easy', label: 'Facile' }, { id: 'normal', label: 'Normal' }, { id: 'hard', label: 'Difficile' },
+    { id: 'expert', label: 'Expert' },
   ]);
   assert.ok(Object.isFrozen(AI_LEVELS) && AI_LEVELS.every(Object.isFrozen));
 });
@@ -158,7 +162,7 @@ test('easy randomness is injectable and sometimes selects a longer safe rotation
     chooseAIMove(view, 'easy', { random: seededRandom(42) }));
 });
 
-for (const { id: level } of AI_LEVELS) {
+for (const { id: level } of PREVIOUS_LEVELS) {
   for (const face of [0, 1]) {
     test(`${level}, face ${face}: own queue can be completed safely from neutral without a prepared solution`, () => {
       const state = emptyGame(face);
@@ -181,8 +185,8 @@ for (const { id: level } of AI_LEVELS) {
   }
 }
 
-for (const { id: first } of AI_LEVELS) {
-  for (const { id: second } of AI_LEVELS) {
+for (const { id: first } of PREVIOUS_LEVELS) {
+  for (const { id: second } of PREVIOUS_LEVELS) {
     test(`${first} versus ${second}: both starting faces reach an ordered result through real alternating turns`, () => {
       for (const starter of [0, 1]) {
         const state = createGame(['A', 'B'], starter);
@@ -267,7 +271,7 @@ test('the v1.4 hard planner keeps its complete face-exchange invariance, includi
 });
 
 for (const face of [0, 1]) {
-  for (const { id: level } of AI_LEVELS) {
+  for (const { id: level } of PREVIOUS_LEVELS) {
     test(`v1.5 ${level}, face ${face}: ten tokens finish with independent ordered series`, () => {
       const game = createVersionedGame(['A', 'B'], face);
       game.faces[1 - face].queue = [];
@@ -305,10 +309,19 @@ for (const face of [0, 1]) {
         const copy = structuredClone(game);
         const move = chooseAIMove(before, level, { random: () => 0 });
         apply(copy, move);
-        assert.equal(copy.faces[face].slots[0][0], lane * 5 + 1);
+        const first = lane * 5 + 1;
+        assert.ok(copy.faces[face].slots.flat().includes(first));
         assert.equal(copy.faces[face].queue.length, 4);
-        const local = getView(copy, face).angles[0];
-        assert.ok(Math.abs(normalizeAngle(local - inputGates(game.geometryVersion)[lane])) < 1e-7);
+        assert.ok(copy.events.flatMap(event => event.transfers).some(transfer =>
+          transfer.face === face && transfer.token === first && transfer.from.queue === true &&
+          transfer.from.lane === lane && transfer.to.wheel === 1));
+        // The established levels stop at the entrance. Expert may continue its
+        // same legal rotation and carry the loaded token into the next wheel.
+        if (level !== 'expert') {
+          assert.equal(copy.faces[face].slots[0][0], first);
+          const local = getView(copy, face).angles[0];
+          assert.ok(Math.abs(normalizeAngle(local - inputGates(game.geometryVersion)[lane])) < 1e-7);
+        }
       }
     });
   }
@@ -323,7 +336,9 @@ for (const face of [0, 1]) {
       const copy = structuredClone(game);
       apply(copy, chooseAIMove(getView(copy, face), level, { random: () => 0 }));
       assert.equal(copy.verdict, null);
-      assert.equal(copy.faces[face].slots[0][0], 6);
+      assert.ok(copy.faces[face].slots.flat().includes(6));
+      assert.deepEqual(copy.faces[face].queue, [7, 8, 9, 10]);
+      if (level !== 'expert') assert.equal(copy.faces[face].slots[0][0], 6);
       assert.equal(copy.faces[face].exited.length, 5);
     }
   });

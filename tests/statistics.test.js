@@ -77,12 +77,37 @@ test('profile names are trimmed, case insensitive and canonically normalized', (
 
 test('controller kind and AI level distinguish otherwise identical names', () => {
   let stats = emptyStatistics();
-  for (const level of ['easy', 'normal', 'hard']) {
+  for (const level of ['easy', 'normal', 'hard', 'expert']) {
     stats = recordStatistics(stats, finished({ players: [player('Alex', 'human', level), player('Alex', 'ai', level)] }));
   }
-  assert.equal(stats.profiles.length, 4);
-  assert.equal(profile(stats, 'Alex').played, 3);
-  for (const level of ['easy', 'normal', 'hard']) assert.equal(profile(stats, 'Alex', 'ai', level).played, 1);
+  assert.equal(stats.profiles.length, 5);
+  assert.equal(profile(stats, 'Alex').played, 4);
+  for (const level of ['easy', 'normal', 'hard', 'expert']) assert.equal(profile(stats, 'Alex', 'ai', level).played, 1);
+  assert.deepEqual(normalizeStatistics(JSON.parse(JSON.stringify(stats))), stats);
+});
+
+test('Expert results extend older counters and survive JSON storage for both game sets', () => {
+  let stats = recordStatistics(emptyStatistics(), finished());
+  const legacy = structuredClone(stats);
+  for (const [gameSetId, geometryVersion] of [['reference', 'ddc-v1.5'], ['miroir-50', 'ddc-miroir50-v1']]) {
+    const before = structuredClone(stats);
+    const next = recordStatistics(stats, finished({ statsId: `expert-${gameSetId}`, gameSetId, geometryVersion,
+      players: [player('Robot', 'ai', 'expert'), player('Robot', 'ai', 'hard')],
+    }));
+    assert.deepEqual(stats, before);
+    stats = normalizeStatistics(JSON.parse(JSON.stringify(next)));
+    assert.deepEqual(stats, next);
+    assert.equal(stats.gameSets.find(set => set.id === gameSetId).profiles.find(item => item.level === 'expert').wins, 1);
+  }
+  assert.equal(stats.totalGames, 3);
+  assert.equal(profile(stats, 'Robot', 'ai', 'expert').wins, 2);
+  assert.equal(profile(stats, 'Robot', 'ai', 'hard').losses, 2);
+  for (const old of legacy.profiles) assert.deepEqual(stats.profiles.find(item => item.key === old.key), old);
+  const invalid = structuredClone(stats);
+  const expert = invalid.profiles.find(item => item.level === 'expert');
+  expert.level = 'future';
+  expert.key = JSON.stringify(['ai', 'robot', 'future']);
+  assert.throws(() => normalizeStatistics(invalid), TypeError);
 });
 
 test('legacy player options safely default to human and normal AI level', () => {

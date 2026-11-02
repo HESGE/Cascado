@@ -101,7 +101,7 @@ function settings({ count = 10, levels = ['normal', 'normal'], firstStarter = 0,
   const target = parseSeriesCount(count);
   if (target === null) throw new TypeError('Le nombre de parties doit être compris entre 1 et 1 000.');
   if (!Array.isArray(levels) || levels.length !== 2 || !levels.every(level => LEVELS.has(level))) {
-    throw new TypeError('Chaque IA doit être easy, normal ou hard.');
+    throw new TypeError('Chaque IA doit être easy, normal, hard ou expert.');
   }
   if (![0, 1].includes(firstStarter)) throw new TypeError('Le premier joueur doit être 0 ou 1.');
   let definition;

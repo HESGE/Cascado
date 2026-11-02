@@ -23,7 +23,7 @@ import { getResultSound } from './result-sound.js';
 import { AI_LEVELS } from './ai.js';
 import { createAIClient } from './ai-client.js';
 import { playerSettings, isAIPlayer, singleHumanIndex, displayedFaceIndex, configurePlayers } from './players.js';
-import { loadHumanRoster, mergeHumanNames, rememberHumanNames, normalizeHumanName } from './player-roster.js';
+import { loadHumanRoster, hasStoredHumanRoster, mergeHumanNames, rememberHumanNames, removeHumanName, normalizeHumanName } from './player-roster.js';
 import { createAIRotation, advanceAIRotation, completeAIRotation, AI_THINK_MS, AI_SELECT_MS, AI_TOKEN_DURATION_SCALE, AI_SETTLE_MS } from './ai-motion.js';
 import { createSeries, seriesOf, seriesGameId, parseSeriesCount, recordSeriesResult, createNextSeriesGame } from './series.js';
 import { createSimulationClient } from './simulation-client.js';
@@ -224,7 +224,7 @@ function renderHome() {
     <div class="actions">${session ? '<button class="primary" data-action="resume">Reprendre la partie</button>' : ''}<button class="${session ? 'secondary' : 'primary'}" data-action="new">Nouvelle partie</button><button class="secondary" data-action="rules">Comment jouer</button><button class="secondary" data-action="options">Options</button></div>
     <div class="install-status" id="install-status">${offlineStatus()}</div>
     ${updateAvailable ? '<button class="secondary" data-action="update">Une mise à jour est disponible</button>' : ''}
-    <p class="muted local-note">Sans compte · Partie enregistrée sur cet appareil<br><span data-release>Version 1.41</span></p></section>`;
+    <p class="muted local-note">Sans compte · Partie enregistrée sur cet appareil<br><span data-release>Version 1.42</span></p></section>`;
 }
 
 function renderOptions() {
@@ -447,11 +447,10 @@ function offlineStatus() {
 function prepare(replace = false, rematch = false, automatic = false) {
   stopMotion();
   mode = 'preparation';
-  humanRoster = mergeHumanNames(humanRoster, session?.game.players.filter(p => playerSettings(p).controller === 'human').map(p => p.name) ?? []);
   const names = [0, 1].map(index => {
     const previous = session?.game.players[index];
-    return (previous && playerSettings(previous).controller === 'human' ? normalizeHumanName(previous.name) : null)
-      || humanRoster.lastNames[index] || ['Camille', 'Léa'][index];
+    const savedName = previous && playerSettings(previous).controller === 'human' ? normalizeHumanName(previous.name) : null;
+    return (humanRoster.names.includes(savedName) ? savedName : null) || humanRoster.lastNames[index] || '';
   });
   const settings = [0, 1].map(index => {
     const saved = playerSettings(session?.game.players[index]);
@@ -469,7 +468,7 @@ function prepare(replace = false, rematch = false, automatic = false) {
     return `<fieldset class="player-setup" data-player-seat="${seat}"><legend>${index ? '◆' : '●'} Joueur ${seat}</legend>
       ${automatic ? `<input type="hidden" name="controller${seat}" value="ai">` : `<label class="field"><span>Joueur ${seat}</span><select name="controller${seat}"><option value="human" ${config.controller === 'human' ? 'selected' : ''}>Humain</option><option value="ai" ${config.controller === 'ai' ? 'selected' : ''}>IA</option></select></label>
       <div class="human-name-fields" data-human-fields ${config.controller === 'ai' ? 'hidden' : ''}>
-        <label class="field"><span>Nom du joueur ${seat}</span><select name="saved-name${seat}" ${config.controller === 'ai' ? 'disabled' : ''}>${humanRoster.names.map((name, position) => `<option value="${position}" ${position===knownIndex ? 'selected' : ''}>${escape(name)}</option>`).join('')}<option value="new" ${knownIndex<0 ? 'selected' : ''}>Créer un nouveau nom…</option></select></label>
+        <div class="field"><label for="saved-name${seat}">Nom du joueur ${seat}</label><div class="name-choice-row"><select id="saved-name${seat}" name="saved-name${seat}" ${config.controller === 'ai' ? 'disabled' : ''}>${humanRoster.names.map((name, position) => `<option value="${position}" ${position===knownIndex ? 'selected' : ''}>${escape(name)}</option>`).join('')}<option value="new" ${knownIndex<0 ? 'selected' : ''}>Créer un nouveau nom…</option></select><button type="button" class="forget-name" data-remove-name ${knownIndex<0 ? 'hidden' : ''} aria-label="${escape(`Supprimer le nom mémorisé ${names[index]}`)}" title="Supprimer ce nom de la liste"><span aria-hidden="true">×</span></button></div></div>
         <label class="field" data-new-name ${knownIndex<0 ? '' : 'hidden'}><span>Nouveau nom du joueur ${seat}</span><input name="player${seat}" autocomplete="off" maxlength="20" ${knownIndex<0 && config.controller==='human' ? 'required' : 'disabled'} value="${escape(names[index])}"></label>
       </div>`}
       <label class="field ai-level" ${config.controller === 'ai' ? '' : 'hidden'}><span>Niveau de l’IA ${seat}</span><select name="level${seat}" ${config.controller === 'ai' ? '' : 'disabled'}>${AI_LEVELS.map(level => `<option value="${level.id}" ${config.level === level.id ? 'selected' : ''}>${level.label}</option>`).join('')}</select></label></fieldset>`;
@@ -477,6 +476,7 @@ function prepare(replace = false, rematch = false, automatic = false) {
   app.innerHTML = `<section class="screen preparation${automatic ? ' is-automatic' : ''}">${brand}<p class="eyebrow">${rematch ? 'REVANCHE' : automatic ? 'IA CONTRE IA' : 'NOUVELLE PARTIE'}</p><h1>${automatic ? 'Duel automatique' : 'Qui joue ?'}</h1><p>${automatic ? 'Choisis les niveaux, le nombre de parties et l’affichage. Les IA enchaînent les confrontations, puis affichent leur bilan.' : 'Choisis un nom enregistré ou crée-en un nouveau. Les noms restent sur cet appareil.'}</p>
     <form id="setup"><input type="hidden" name="game-set" value="${setId}"><input type="hidden" name="start-mode" value="${startMode}">${automatic ? `<div class="automatic-levels">${fields}</div>` : fields}${automatic ? `<div class="series-count-field"><label class="field"><span>Nombre de parties</span><input type="number" name="series-count" inputmode="numeric" min="1" max="1000" step="1" required value="${seriesTarget}" aria-describedby="series-count-help"></label><div class="series-presets" role="group" aria-label="Nombre de parties proposé">${[10,50,100].map(count => `<button class="secondary" type="button" data-action="series-preset" data-count="${count}" aria-pressed="${seriesTarget===count}">${count} parties</button>`).join('')}</div><p id="series-count-help" class="muted">De 1 à 1 000 parties. Garde le jeu ouvert pour calculer.</p><label class="field"><span>Affichage</span><select name="simulation-mode" aria-describedby="simulation-mode-help"><option value="headless" ${simulationMode==='headless' ? 'selected' : ''}>Sans plateau — simulation rapide</option><option value="board" ${simulationMode==='board' ? 'selected' : ''}>Avec le plateau</option></select></label><p id="simulation-mode-help" class="muted">Sans plateau, les IA calculent à pleine vitesse. Seuls les scores et l’avancement sont affichés.</p></div>` : ''}<div data-setup-speed ${settings.some(config => config.controller === 'ai') && (!automatic || simulationMode !== 'headless') ? '' : 'hidden'}>${speedSlot()}</div>
     ${automatic ? `<input type="hidden" name="starter" value="${starter}"><p class="automatic-start">IA ${starter+1} commence, puis le premier joueur alterne à chaque partie. Tu peux mettre la série en pause.</p>` : `<label class="field"><span>Premier joueur</span><select name="starter"><option value="0" ${starter === 0 ? 'selected' : ''}>Joueur 1</option><option value="1" ${starter === 1 ? 'selected' : ''}>Joueur 2</option></select></label>`}
+    <p class="muted roster-status" id="roster-status" role="status" aria-live="polite" hidden></p>
     ${replace ? '<p class="replacement-note">Démarrer remplacera la partie enregistrée sur cet appareil.</p>' : ''}
     <button class="primary" type="submit">${automatic ? (replace ? 'Remplacer et lancer' : 'Lancer la série') : replace ? 'Remplacer et commencer' : 'Commencer la partie'}</button></form>
     <button class="secondary" data-action="home">Retour</button></section>`;
@@ -496,15 +496,43 @@ function prepare(replace = false, rematch = false, automatic = false) {
     app.querySelector('[data-setup-speed]').hidden = ![...app.querySelectorAll('select[name^="controller"]')].some(select => select.value === 'ai');
     syncSpeedPanel();
   }));
-  app.querySelectorAll('select[name^="saved-name"]').forEach(control => control.addEventListener('change', () => {
+  const syncNameChoice = (control, clearNew = false) => {
     const group = control.closest('fieldset');
     const fresh = control.value === 'new';
     const input = group.querySelector('input[name^="player"]');
+    const remove = group.querySelector('[data-remove-name]');
     input.setCustomValidity('');
     group.querySelector('[data-new-name]').hidden = !fresh;
-    input.disabled = !fresh;
-    input.required = fresh;
-    if(fresh) { input.value = ''; input.focus({preventScroll:true}); }
+    input.disabled = !fresh || control.disabled;
+    input.required = !input.disabled;
+    remove.hidden = fresh;
+    if(!fresh) remove.setAttribute('aria-label', `Supprimer le nom mémorisé ${humanRoster.names[Number(control.value)]}`);
+    if(fresh && clearNew) input.value = '';
+  };
+  app.querySelectorAll('select[name^="saved-name"]').forEach(control => control.addEventListener('change', () => {
+    syncNameChoice(control, true);
+    if(control.value === 'new') control.closest('fieldset').querySelector('input[name^="player"]').focus({preventScroll:true});
+  }));
+  app.querySelectorAll('[data-remove-name]').forEach(button => button.addEventListener('click', () => {
+    const choice = button.closest('fieldset').querySelector('select[name^="saved-name"]');
+    if(choice.disabled || choice.value === 'new') return;
+    const name = humanRoster.names[Number(choice.value)];
+    if(!name) return;
+    // Capture identities before rebuilding the lists: their indices will shift.
+    const choices = [...app.querySelectorAll('select[name^="saved-name"]')].map(control => ({
+      control, name:control.value === 'new' ? null : humanRoster.names[Number(control.value)],
+    }));
+    humanRoster = removeHumanName(humanRoster, name);
+    for(const entry of choices) {
+      const index = entry.name ? humanRoster.names.indexOf(entry.name) : -1;
+      entry.control.innerHTML = humanRoster.names.map((known, position) => `<option value="${position}">${escape(known)}</option>`).join('') + '<option value="new">Créer un nouveau nom…</option>';
+      entry.control.value = index < 0 ? 'new' : String(index);
+      syncNameChoice(entry.control, Boolean(entry.name) && index < 0);
+    }
+    const status = app.querySelector('#roster-status');
+    status.textContent = `« ${name} » a été retiré des noms mémorisés.`;
+    status.hidden = false;
+    choice.closest('fieldset').querySelector('input[name^="player"]').focus({preventScroll:true});
   }));
   app.querySelectorAll('input[name^="player"]').forEach(input => input.addEventListener('input', () => input.setCustomValidity('')));
   app.querySelector('[name="simulation-mode"]')?.addEventListener('change',event => {
@@ -1436,12 +1464,14 @@ async function boot() {
     const upgraded=session&&upgradeGameGeometry(session.game);
     if(session) app.dataset.geometryVersion = session.game.geometryVersion;
     const identified=session&&await ensureLegacyStatisticsIdentity(session.game);
-    humanRoster = mergeHumanNames(humanRoster, session?.game.players.filter(p => playerSettings(p).controller === 'human').map(p => p.name) ?? []);
-    try {
-      const statistics = await loadStatistics();
-      humanRoster = mergeHumanNames(humanRoster, statistics.profiles.filter(profile => profile.controller === 'human').map(profile => profile.name));
-    } catch { /* Recovering optional saved names must not prevent playing. */ }
-    humanRoster = rememberHumanNames(humanRoster, [null, null]);
+    if(!hasStoredHumanRoster()) {
+      humanRoster = mergeHumanNames(humanRoster, session?.game.players.filter(p => playerSettings(p).controller === 'human').map(p => p.name) ?? []);
+      try {
+        const statistics = await loadStatistics();
+        humanRoster = mergeHumanNames(humanRoster, statistics.profiles.filter(profile => profile.controller === 'human').map(profile => profile.name));
+      } catch { /* Recovering optional saved names must not prevent playing. */ }
+      humanRoster = rememberHumanNames(humanRoster, [null, null]);
+    }
     if(session)renderMask();else renderHome();
     if(upgraded||identified)await persist({type:upgraded?'geometry-upgrade':'statistics-identity',from:previousGeometry,to:session.game.geometryVersion});
     setupPWA();

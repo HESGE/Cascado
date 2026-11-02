@@ -5,7 +5,7 @@ import { readFile } from 'node:fs/promises';
 import { createGame } from '../src/engine.js';
 import { newSession } from '../src/flow.js';
 import { configurePlayers, playerSettings } from '../src/players.js';
-import { loadHumanRoster, mergeHumanNames, rememberHumanNames } from '../src/player-roster.js';
+import { loadHumanRoster, mergeHumanNames, rememberHumanNames, hasStoredHumanRoster, removeHumanName } from '../src/player-roster.js';
 
 const source = await readFile(new URL('../src/app.js', import.meta.url), 'utf8');
 const start = source.indexOf('\nasync function boot()');
@@ -20,13 +20,14 @@ function bootHarness({ saved = null, statistics = { profiles: [] }, statisticsEr
   preferences = new Map(), blockedStorage = false } = {}) {
   const storage = {
     getItem(key) { if (blockedStorage) throw new Error('Storage blocked'); return preferences.get(key) ?? null; },
-    setItem(key, value) { if (blockedStorage) throw new Error('Storage blocked'); preferences.set(key, value); },
+    setItem(key, value) { if (blockedStorage) throw new Error('Storage blocked'); calls.rosterWrites++; preferences.set(key, value); },
   };
-  const calls = { loadGame: 0, loadStatistics: 0, mask: 0, home: 0, pwa: 0, persist: [], failures: [] };
+  const calls = { loadGame: 0, loadStatistics: 0, rosterWrites: 0, mask: 0, home: 0, pwa: 0, persist: [], failures: [] };
   const app = { dataset: {} };
   const context = vm.createContext({
     app, session: null, storageReady: false,
     humanRoster: loadHumanRoster(storage), playerSettings, mergeHumanNames,
+    hasStoredHumanRoster: (suppliedStorage = storage) => hasStoredHumanRoster(suppliedStorage),
     rememberHumanNames: (roster, names) => rememberHumanNames(roster, names, storage),
     async loadGame() { calls.loadGame++; return saved; },
     async loadStatistics() { calls.loadStatistics++; if (statisticsError) throw statisticsError; return statistics; },
@@ -91,7 +92,7 @@ test('migrated statistical names survive statistics reset and reload before any 
   assert.equal(reopened.calls.home, 1);assert.deepEqual(reopened.calls.failures, []);
 });
 
-test('startup migration preserves both last human selections and adds only known humans', async () => {
+test('an existing valid roster preserves its choices without importing legacy game or statistics names', async () => {
   const preferences = new Map(), initialStorage = {
     getItem: key => preferences.get(key) ?? null,
     setItem: (key, value) => preferences.set(key, value),
@@ -103,7 +104,9 @@ test('startup migration preserves both last human selections and adds only known
   await h.boot();
   const roster = loadHumanRoster(h.storage);
   assert.deepEqual(roster.lastNames, ['Camille', 'Léa']);
-  for (const name of ['Camille', 'Léa', 'Élodie Martin', 'Nouveau profil']) assert.ok(roster.names.includes(name));
+  assert.deepEqual(roster.names, ['Camille', 'Léa']);
+  assert.ok(!roster.names.includes('Élodie Martin'));assert.ok(!roster.names.includes('Nouveau profil'));
+  assert.equal(h.calls.loadStatistics, 0);assert.equal(h.calls.rosterWrites, 0);
   assert.ok(!roster.names.includes('IA 1'));assert.deepEqual(h.calls.failures, []);
 });
 
@@ -125,4 +128,43 @@ test('optional roster storage failure does not prevent normal startup or mutate 
   assert.deepEqual(h.calls.failures, []);assert.deepEqual(saved, originalSave);
   assert.ok(h.context.humanRoster.names.includes('Zoé'));assert.ok(h.context.humanRoster.names.includes('Élodie Martin'));
   assert.equal(h.preferences.size, 0);
+});
+
+
+test('a valid empty roster stays empty across reloads despite historical session and statistics names', async () => {
+  const saved = mixedLegacySave(), savedSnapshot = structuredClone(saved);
+  const statistics = { profiles: [{ name: 'Zoé', controller: 'human' }, { name: 'IA 1', controller: 'ai' }] };
+  const statisticsSnapshot = structuredClone(statistics);
+  const empty = { names: [], lastNames: [null, null] }, preferences = new Map([[KEY, JSON.stringify(empty)]]);
+  for (let reload = 0; reload < 2; reload++) {
+    const h = bootHarness({ saved, statistics, preferences });await h.boot();
+    assert.deepEqual(structuredClone(h.context.humanRoster), empty);assert.deepEqual(loadHumanRoster(h.storage), empty);
+    assert.equal(h.calls.loadStatistics, 0);assert.equal(h.calls.rosterWrites, 0);
+    assert.equal(h.calls.mask, 1);assert.deepEqual(h.calls.persist, []);assert.deepEqual(h.calls.failures, []);
+  }
+  assert.deepEqual(saved, savedSnapshot);assert.deepEqual(statistics, statisticsSnapshot);
+});
+
+test('a name deleted after first migration is not reimported from the unchanged statistics or saved game', async () => {
+  const saved = mixedLegacySave(), originalSave = structuredClone(saved);
+  const statistics = { profiles: [{ name: 'Zoé', controller: 'human' }] }, originalStats = structuredClone(statistics);
+  const preferences = new Map(), first = bootHarness({ saved, statistics, preferences });await first.boot();
+  assert.equal(first.calls.loadStatistics, 1);assert.equal(first.calls.rosterWrites, 1);
+  let roster = removeHumanName(first.context.humanRoster, 'Zoé', first.storage);
+  roster = removeHumanName(roster, 'Élodie Martin', first.storage);
+  assert.deepEqual(roster, { names: [], lastNames: [null, null] });
+  const reopened = bootHarness({ saved, statistics, preferences });await reopened.boot();
+  assert.deepEqual(structuredClone(reopened.context.humanRoster), roster);
+  assert.equal(reopened.calls.loadStatistics, 0);assert.equal(reopened.calls.rosterWrites, 0);
+  assert.deepEqual(saved, originalSave);assert.deepEqual(statistics, originalStats);
+});
+
+test('a corrupt roster is recovered once, then later historical names are not imported again', async () => {
+  const preferences = new Map([[KEY, '{invalid JSON']]);
+  const first = bootHarness({ preferences, statistics: { profiles: [{ name: 'Anaïs', controller: 'human' }] } });
+  await first.boot();assert.equal(first.calls.loadStatistics, 1);assert.equal(first.calls.rosterWrites, 1);
+  assert.equal(hasStoredHumanRoster(first.storage), true);assert.deepEqual(loadHumanRoster(first.storage).names, ['Anaïs']);
+  const reopened = bootHarness({ preferences, statistics: { profiles: [{ name: 'New historical name', controller: 'human' }] } });
+  await reopened.boot();assert.equal(reopened.calls.loadStatistics, 0);assert.equal(reopened.calls.rosterWrites, 0);
+  assert.deepEqual(loadHumanRoster(reopened.storage).names, ['Anaïs']);
 });

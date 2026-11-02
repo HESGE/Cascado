@@ -65,6 +65,28 @@ export function loadHumanRoster(storage) {
   }
 }
 
+/** A saved empty list is intentional: do not import old session/statistics names. */
+export function hasStoredHumanRoster(storage) {
+  try {
+    const raw = browserStorage(storage)?.getItem(STORAGE_KEY);
+    if (!raw) return false;
+    const value = JSON.parse(raw);
+    const validName = name => typeof name === 'string' && Boolean(normalizeHumanName(name));
+    return Boolean(value && typeof value === 'object' && !Array.isArray(value) &&
+      Array.isArray(value.names) && value.names.every(validName) &&
+      Array.isArray(value.lastNames) && value.lastNames.length === 2 &&
+      value.lastNames.every(name => name === null || validName(name)));
+  } catch {
+    return false;
+  }
+}
+
+function persistRoster(roster, storage) {
+  try { browserStorage(storage)?.setItem(STORAGE_KEY, JSON.stringify(roster)); }
+  catch { /* The returned roster remains usable for this open application. */ }
+  return roster;
+}
+
 /** Merge known humans without saving or changing the two remembered seats. */
 export function mergeHumanNames(roster, names) {
   const previous = normalizeRoster(roster);
@@ -83,7 +105,16 @@ export function rememberHumanNames(roster, humanNames, storage) {
     names: uniqueNames([...selected, ...previous.names]),
     lastNames: selected.map((name, index) => name ?? previous.lastNames[index]),
   });
-  try { browserStorage(storage)?.setItem(STORAGE_KEY, JSON.stringify(updated)); }
-  catch { /* The returned roster remains usable for this open application. */ }
-  return updated;
+  return persistRoster(updated, storage);
+}
+
+/** Forget the name itself, including either remembered seat, without tombstones. */
+export function removeHumanName(roster, name, storage) {
+  const previous = normalizeRoster(roster);
+  const target = normalizeHumanName(name);
+  const matches = value => value !== null && target !== '' && nameKey(value) === nameKey(target);
+  return persistRoster({
+    names: previous.names.filter(known => !matches(known)),
+    lastNames: previous.lastNames.map(known => matches(known) ? null : known),
+  }, storage);
 }

@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   normalizeHumanName, loadHumanRoster, mergeHumanNames, rememberHumanNames,
+  hasStoredHumanRoster, removeHumanName,
 } from '../src/player-roster.js';
 
 const KEY = 'ddc-human-roster';
@@ -128,8 +129,72 @@ test('even a throwing browser localStorage getter is safely optional', () => {
     assert.deepEqual(rememberHumanNames(EMPTY, ['Léa', null]), {
       names: ['Léa'], lastNames: ['Léa', null],
     });
+    assert.equal(hasStoredHumanRoster(), false);
+    assert.deepEqual(removeHumanName({ names: ['Léa'], lastNames: ['Léa', null] }, 'Léa'), EMPTY);
   } finally {
     if (descriptor) Object.defineProperty(globalThis, 'localStorage', descriptor);
     else delete globalThis.localStorage;
   }
+});
+
+test('stored empty rosters count as intentional while missing or invalid payloads do not', () => {
+  assert.equal(hasStoredHumanRoster(memoryStorage(JSON.stringify(EMPTY))), true);
+  assert.equal(hasStoredHumanRoster(memoryStorage(JSON.stringify({
+    names: ['Léa'], lastNames: ['Léa', null],
+  }))), true);
+  for (const raw of [null, '{broken', 'null', '[]', '42', '{}',
+    '{"names":[],"lastNames":[]}', '{"names":[3],"lastNames":[null,null]}',
+    '{"names":[""],"lastNames":[null,null]}', '{"names":[],"lastNames":[{},null]}']) {
+    assert.equal(hasStoredHumanRoster(memoryStorage(raw)), false, String(raw));
+  }
+  assert.equal(hasStoredHumanRoster({ getItem() { throw new Error('Blocked'); } }), false);
+  assert.equal(hasStoredHumanRoster(null), false);
+});
+
+test('removing uses normalized case/NFC identity, distinguishes accents and clears both seats', () => {
+  const storage = memoryStorage();
+  const previous = { names: ['Léa', 'Lea', 'Camille'], lastNames: ['LÉA', 'Le\u0301a'] };
+  const unaccented = removeHumanName(previous, ' LEA ', storage);
+  assert.deepEqual(unaccented, { names: ['Léa', 'Camille'], lastNames: ['Léa', 'Léa'] });
+  const accented = removeHumanName(unaccented, ' LE\u0301A ', storage);
+  assert.deepEqual(accented, { names: ['Camille'], lastNames: [null, null] });
+  assert.deepEqual(loadHumanRoster(storage), accented);
+});
+
+test('deleting the last human persists a recognized empty list without retaining the name', () => {
+  const storage = memoryStorage();
+  const previous = rememberHumanNames(EMPTY, ['Léa', 'Léa'], storage);
+  const removed = removeHumanName(previous, 'Léa', storage);
+  assert.deepEqual(removed, EMPTY);
+  assert.deepEqual(JSON.parse(storage.getItem(KEY)), EMPTY);
+  assert.equal(hasStoredHumanRoster(storage), true);
+  assert.equal(storage.getItem(KEY).includes('Léa'), false);
+  assert.deepEqual(loadHumanRoster(storage), EMPTY);
+  // Only an explicit new game selection adds the removed human again.
+  const recreated = rememberHumanNames(removed, ['Léa', null], storage);
+  assert.deepEqual(recreated, { names: ['Léa'], lastNames: ['Léa', null] });
+});
+
+test('deleting twice or an unknown/invalid name is harmless and inputs remain immutable', () => {
+  const storage = memoryStorage();
+  const previous = Object.freeze({
+    names: Object.freeze(['Léa', 'Camille']), lastNames: Object.freeze(['Léa', 'Camille']),
+  });
+  const removed = removeHumanName(previous, 'Léa', storage);
+  assert.deepEqual(removeHumanName(removed, 'Léa', storage), removed);
+  assert.deepEqual(removeHumanName(removed, 'Unknown', storage), removed);
+  assert.deepEqual(removeHumanName(removed, null, storage), removed);
+  assert.deepEqual(previous, { names: ['Léa', 'Camille'], lastNames: ['Léa', 'Camille'] });
+  removed.names.push('Other');
+  removed.lastNames[1] = null;
+  assert.deepEqual(previous.names, ['Léa', 'Camille']);
+  assert.deepEqual(previous.lastNames, ['Léa', 'Camille']);
+});
+
+test('deletion remains usable in memory if persisting is unavailable', () => {
+  const blocked = { setItem() { throw new Error('Quota exceeded'); } };
+  const previous = { names: ['Léa', 'Camille'], lastNames: ['Léa', 'Camille'] };
+  const expected = { names: ['Camille'], lastNames: [null, 'Camille'] };
+  assert.deepEqual(removeHumanName(previous, 'Léa', blocked), expected);
+  assert.deepEqual(removeHumanName(previous, 'Léa', null), expected);
 });

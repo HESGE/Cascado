@@ -12,7 +12,7 @@ import { configureStartingPosition, normalizeStartConfig, ORIGINAL_START_MODE,
   ORIGINAL_START_ANGLES, startingAnglesFor, MIROIR50_START_MODE, randomMiroir50Seed,
   miroir50RematchSeed, miroir50ScheduleEntry } from '../src/starting-position.js';
 import { GAME_SETS, getGameSet, gameSetIdForGeometry } from '../src/game-sets.js';
-import { loadHumanRoster, normalizeHumanName, mergeHumanNames, rememberHumanNames } from '../src/player-roster.js';
+import { loadHumanRoster, normalizeHumanName, mergeHumanNames, rememberHumanNames, removeHumanName } from '../src/player-roster.js';
 
 const source = await readFile(new URL('../src/app.js', import.meta.url), 'utf8');
 function between(start, end) {
@@ -49,6 +49,12 @@ function harness(saved = null, options = {}) {
   const saves = [];
   const preferences = options.preferences ?? new Map();
   const storage = { getItem: name => preferences.get(name) ?? null, setItem: (name, value) => preferences.set(name, value) };
+  // Mechanical setup tests begin with two already known humans. This is input
+  // fixture state, never a production-name fallback or a submit-time override.
+  // Explicit empty/stored rosters remain empty, just as a completed deletion.
+  const legacyHumans = saved?.game.players.filter(p => playerSettings(p).controller === 'human').map(p => p.name) ?? [];
+  const fixtureRoster = options.humanRoster ?? (preferences.has('ddc-human-roster') ? loadHumanRoster(storage)
+    : mergeHumanNames(rememberHumanNames(loadHumanRoster(null), ['Camille', 'Léa'], null), legacyHumans));
   const form = { addEventListener: (name, callback) => formListeners.set(name, callback) };
   const countField = { value: '10', addEventListener() {}, setCustomValidity() {}, reportValidity() {} };
   const app = {
@@ -65,9 +71,10 @@ function harness(saved = null, options = {}) {
     GAME_SETS, getGameSet, gameSetIdForGeometry, MIROIR50_START_MODE, randomMiroir50Seed, miroir50RematchSeed,
     gameSetPreference: options.setPreference ?? 'reference',
     gameStartPreference: options.gameStartPreference ?? ORIGINAL_START_MODE,
-    humanRoster: options.humanRoster ?? loadHumanRoster(storage),
+    humanRoster: fixtureRoster,
     normalizeHumanName, mergeHumanNames,
     rememberHumanNames: (roster, names, suppliedStorage = storage) => rememberHumanNames(roster, names, suppliedStorage),
+    removeHumanName: (roster, name, suppliedStorage = storage) => removeHumanName(roster, name, suppliedStorage),
     seriesCountPreference: 10, simulationModePreference: 'headless', startModePreference: options.preference ?? 'varied',
     aiGeneration: 0, selected: null, document: { hidden: false }, brand: '<div>CASCADO</div>',
     createGame, configurePlayers, playerSettings, newSession,
@@ -369,7 +376,7 @@ test('ordinary setup takes hidden next-game settings from Options without rewrit
 });
 
 test('new human names are normalized, remembered and selectable on subsequent setup and a later app opening', async () => {
-  const h = harness();
+  const h = harness(null, { humanRoster: loadHumanRoster(null) });
   h.prepare();
   await h.submit({ controller1: 'human', controller2: 'human', 'saved-name1': 'new', 'saved-name2': 'new', player1: '  Zoe\u0301   Martin  ', player2: '  Noé  ' });
   assert.deepEqual(Array.from(h.context.session.game.players, p => p.name), ['Zoé Martin', 'Noé']);
@@ -429,4 +436,32 @@ test('invalid saved-name indices fall back to normalized new human names without
     player1: '  Zoé  ', player2: '  Émile  ' });
   assert.deepEqual(Array.from(h.context.session.game.players, p => p.name), ['Zoé', 'Émile']);
   assert.deepEqual(JSON.parse(h.preferences.get('ddc-human-roster')).lastNames, ['Zoé', 'Émile']);
+});
+
+
+test('an intentionally empty human roster opens blank fields without resurrecting saved-session names', async () => {
+  const saved = sessionFor(ORIGINAL_START_MODE), snapshot = structuredClone(saved);
+  const empty = { names: [], lastNames: [null, null] };
+  const preferences = new Map([['ddc-human-roster', JSON.stringify(empty)]]);
+  const h = harness(saved, { preferences });
+  h.prepare(true);
+  assert.equal(h.defaults().get('saved-name1'), 'new');assert.equal(h.defaults().get('saved-name2'), 'new');
+  assert.equal(h.defaults().get('player1'), '');assert.equal(h.defaults().get('player2'), '');
+  assert.deepEqual(structuredClone(h.context.humanRoster), empty);
+  await h.submit();
+  assert.equal(h.context.session, saved);assert.deepEqual(saved, snapshot);assert.equal(h.saves.length, 0);
+  assert.deepEqual(JSON.parse(h.preferences.get('ddc-human-roster')), empty);
+});
+
+test('a removed current-session name stays absent when preparation is reopened', () => {
+  const saved = sessionFor(ORIGINAL_START_MODE), snapshot = structuredClone(saved);
+  const initial = rememberHumanNames(loadHumanRoster(null), ['Camille', 'Léa'], null);
+  const roster = removeHumanName(initial, 'Camille', null);
+  const h = harness(saved, { humanRoster: roster });
+  h.prepare(true);
+  assert.equal(h.defaults().get('player1'), '');assert.equal(h.defaults().get('saved-name1'), 'new');
+  assert.equal(h.defaults().get('saved-name2'), String(roster.names.indexOf('Léa')));
+  assert.ok(!h.context.humanRoster.names.includes('Camille'));
+  h.prepare(true);assert.ok(!h.context.humanRoster.names.includes('Camille'));
+  assert.deepEqual(saved, snapshot);assert.equal(h.saves.length, 0);
 });

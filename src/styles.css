@@ -102,6 +102,11 @@ p { line-height: 1.5; }
 .preparation .player-setup { display: grid; gap: 12px; padding: 12px; border: 1px solid #c9d6ce; border-radius: 14px; }
 .player-setup legend { padding: 0 5px; font-size: .85rem; }
 .human-name-fields { display: grid; min-width: 0; gap: 12px; }
+.name-choice-row { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.name-choice-row select { flex: 1; width: 0; }
+.forget-name { display: grid; place-items: center; flex: 0 0 44px; width: 44px; height: 44px; padding: 0; border-radius: 50%; background: transparent; color: var(--muted); font-size: 1.5rem; line-height: 1; }
+.forget-name:hover, .forget-name:focus-visible { background: #e6ebe8; color: var(--navy); }
+.roster-status { font-size: .8rem; }
 .game-options { display: grid; min-width: 0; min-inline-size: 0; gap: 14px; margin: 0; padding: 16px; border: 1px solid #c9d6ce; border-radius: 14px; }
 .game-options legend { padding: 0 5px; font-weight: 650; }
 .game-options [data-reference-start] { display: grid; gap: 10px; }

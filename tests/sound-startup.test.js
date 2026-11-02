@@ -155,21 +155,25 @@ function harness(options = {}) {
   };
 }
 
-test('sound help: the home entry renders a dedicated screen without starting or enabling audio', async () => {
+test('sound help: the options entry renders a dedicated screen without starting or enabling audio', async () => {
   const h = harness();
   h.api.renderHome();
+  assert.doesNotMatch(h.app.innerHTML, /data-action="sound-help"/);
+  assert.match(h.app.innerHTML, /data-action="options"/);
+  await h.click('options');
+  assert.equal(h.context.mode, 'options');
   assert.match(h.app.innerHTML, /data-action="sound-help"/);
   await h.click('sound-help');
   assert.equal(h.context.mode, 'sound-help');
   assert.ok(h.button());
-  assert.match(h.app.innerHTML, /data-action="home"/);
+  assert.match(h.app.innerHTML, /data-action="options"/);
   assert.equal(h.player.enabled, false);
   assert.equal(h.audio.contexts.length, 0);
   assert.deepEqual(h.preferenceWrites, []);
   assert.equal(h.saves(), 0);
 });
 
-test('sound help: only the dedicated mode accepts a test and only home accepts its entry action', async () => {
+test('sound help: only the dedicated mode accepts a test and only a menu accepts its entry action', async () => {
   for (const mode of ['play', 'handoff', 'ai-play', 'result']) {
     const h = harness({ mode });
     await h.click('sound-help');

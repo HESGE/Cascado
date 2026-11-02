@@ -1,5 +1,6 @@
 import { createGame, rotate, getView, allowedWheels, upgradeGameGeometry } from './engine.js';
 import { renderBoard, wheelCenter, seriesAppearance } from './board.js';
+import { rulesPreviewMarkup, setupRulesPreview } from './rules-preview.js';
 import { wheelRestrictionMessage } from './wheel-rule.js';
 import { APP_PUBLIC_URL, APP_QR_ASSET, copyAppLink, shareAppLink } from './share.js';
 import { animateBoard, cancelBoardMotion, boardMotionRemaining, retimeBoardMotion, finishBoardMotion } from './motion.js';
@@ -208,6 +209,7 @@ function failStorage(error) {
 }
 
 function renderHome() {
+  app.querySelector('[data-rules-preview]')?.rulesPreviewCleanup?.();
   stopMotion();
   mode = 'home';
   app.innerHTML = `<section class="screen home">${brand}
@@ -215,12 +217,20 @@ function renderHome() {
     <p class="eyebrow">UN TÉLÉPHONE · HUMAINS OU IA</p>
     <h1>À chacun<br>son côté.</h1>
     <p>Tournez les roues. Faites sortir vos deux séries de 1 à 5 dans l’ordre. Gardez votre plateau pour vous.</p>
-    <div class="actions">${session ? '<button class="primary" data-action="resume">Reprendre la partie</button>' : ''}<button class="${session ? 'secondary' : 'primary'}" data-action="new">Nouvelle partie</button><button class="secondary" data-action="automatic">Duel automatique</button><button class="secondary" data-action="rules">Comment jouer</button><button class="secondary" data-action="statistics">Statistiques</button><button class="secondary" data-action="share-app">Partager l’application</button></div>
+    <div class="actions">${session ? '<button class="primary" data-action="resume">Reprendre la partie</button>' : ''}<button class="${session ? 'secondary' : 'primary'}" data-action="new">Nouvelle partie</button><button class="secondary" data-action="rules">Comment jouer</button><button class="secondary" data-action="options">Options</button></div>
     <div class="install-status" id="install-status">${offlineStatus()}</div>
-    <button class="text-button" data-action="sound-help">Un problème de son ?</button>
-    <button class="text-button" data-action="install">Installer sur mon téléphone</button>
     ${updateAvailable ? '<button class="secondary" data-action="update">Une mise à jour est disponible</button>' : ''}
-    <p class="muted local-note">Sans compte · Partie enregistrée sur cet appareil<br><span data-release>Version 1.39</span></p></section>`;
+    <p class="muted local-note">Sans compte · Partie enregistrée sur cet appareil<br><span data-release>Version 1.40</span></p></section>`;
+}
+
+function renderOptions() {
+  app.querySelector('[data-rules-preview]')?.rulesPreviewCleanup?.();
+  stopMotion();
+  mode = 'options';
+  app.innerHTML = `<section class="screen rules options">${brand}<p class="eyebrow">OPTIONS</p><h1 tabindex="-1">Tout à portée de main.</h1>
+    <div class="actions"><button class="secondary" data-action="statistics">Statistiques</button><button class="secondary" data-action="share-app">Partager l’application</button><button class="secondary" data-action="install">Installer sur mon téléphone</button><button class="secondary" data-action="sound-help">Son : aide et test</button></div>
+    <button class="primary" data-action="home">Retour à l’accueil</button></section>`;
+  focusFirst();
 }
 
 function renderAppShare() {
@@ -235,7 +245,7 @@ function renderAppShare() {
     <label class="field"><span>Lien de l’application</span><input id="app-share-link" type="url" readonly value="${APP_PUBLIC_URL}" spellcheck="false"></label>
     <div class="actions">${nativeShare ? '<button class="primary" data-action="share-send">Partager le lien</button>' : ''}<button class="${nativeShare ? 'secondary' : 'primary'}" data-action="share-copy">Copier le lien</button></div>
     <p class="muted app-share-status" id="share-status" role="status" aria-live="polite">Le lien ouvre l’application, sans données de partie.</p>
-    <button class="secondary" data-action="home">Retour à l’accueil</button></section>`;
+    <button class="secondary" data-action="options">Retour aux options</button></section>`;
   focusFirst();
 }
 
@@ -280,7 +290,7 @@ function renderSoundHelp() {
     <button class="primary" data-action="sound-test">Activer et tester le son</button>
     <p role="status" aria-live="polite" id="sound-test-status">Sur iPhone, désactive le mode silencieux pour cet essai et augmente le volume multimédia. Vérifie aussi que le son ne part pas vers des écouteurs ou une enceinte Bluetooth.</p>
     <p class="muted">Si le son ne revient pas, ferme puis rouvre l’onglet et réessaie. Conserve les données du site pour garder ta partie.</p>
-    <button class="secondary" data-action="home">Retour à l’accueil</button></section>`;
+    <button class="secondary" data-action="options">Retour aux options</button></section>`;
   focusFirst();
 }
 
@@ -327,11 +337,11 @@ async function ensureLegacyStatisticsIdentity(game) {
 }
 
 function statisticsBackButton() {
-  return `<button class="secondary" data-action="statistics-back">${statisticsReturn === 'result' ? 'Retour au résultat' : 'Retour à l’accueil'}</button>`;
+  return `<button class="secondary" data-action="statistics-back">${statisticsReturn === 'result' ? 'Retour au résultat' : statisticsReturn === 'options' ? 'Retour aux options' : 'Retour à l’accueil'}</button>`;
 }
 
 async function renderStatistics(message = '', keepReturn = false) {
-  if(!keepReturn) statisticsReturn = mode === 'result' ? 'result' : 'home';
+  if(!keepReturn) statisticsReturn = mode === 'result' ? 'result' : mode === 'options' ? 'options' : 'home';
   stopMotion();
   mode = 'statistics';
   const request = ++statisticsRequest;
@@ -1142,13 +1152,17 @@ async function runSeriesTransition() {
 }
 
 function renderRules() {
+  app.querySelector('[data-rules-preview]')?.rulesPreviewCleanup?.();
   mode='rules';
   app.innerHTML=`<section class="screen rules">${brand}<p class="eyebrow">LES RÈGLES</p><h1>Fais-les tomber.<br>Dans le bon ordre.</h1>
+    ${rulesPreviewMarkup()}
     <ol><li>Chacun possède dix jetons : une série de 1 à 5 à gauche et une autre à droite, distinguées par leur couleur et leur symbole.</li><li>À ton tour, choisis une roue et tourne-la lentement. Les deux faces bougent ensemble.</li><li>Tu peux t’arrêter, reprendre et changer de sens sur cette même roue.</li><li>La dernière roue jouée par l’adversaire est interdite. Exception : ton dernier jeton est encore dans la roue 5.</li><li>Pour gagner, sors les dix jetons en respectant l’ordre de 1 à 5 dans chaque série. Tu peux alterner les deux séries. Une sortie hors ordre dans une série fait perdre son propriétaire.</li><li>Contre une IA, appuie sur « Terminer mon tour » et garde le téléphone. À deux humains, appuie sur « Terminer et masquer », puis donne le téléphone au joueur indiqué. Il appuie une seule fois sur le bouton à son prénom pour afficher son plateau.</li></ol>
     ${session && tokenTotal(session.game.geometryVersion) === 5 ? '<p>Ta partie déjà commencée conserve une seule série de cinq jetons et une seule entrée. Pour cette partie, fais sortir les cinq jetons de 1 à 5 pour gagner.</p>' : ''}
-    <p>Choisis ton set pendant la préparation : <strong>Référence</strong> conserve le réglage habituel. <strong>Miroir 50</strong> utilise des roues symétriques et 50 positions sélectionnées. Le départ est tiré au sort ; une revanche propose son complément avec l’autre joueur qui commence. En duel automatique, 100 parties couvrent les 50 positions avec les deux premiers joueurs. Les règles et les commandes restent les mêmes.</p>
-    <p>Les nouvelles parties proposent « Repères d’origine — estimés » : les roues retrouvent une position reconstituée d’après les flèches du jeu photographié. Ce départ reste une estimation et ne garantit pas l’équilibre des faces. Tu peux choisir « Ancien départ Cascado » pendant la préparation. Les départs variés restent disponibles en duel automatique.</p><p>Pose le doigt sur une roue, maintiens-le et fais-le glisser autour de son centre pour la tourner. La roue suit ton mouvement, dans les deux sens, avec une légère aimantation près des alignements. Continue ton geste pour dépasser un alignement. Relâche pour t’arrêter ; garder le doigt immobile ne fait pas tourner. Si tu touches le moyeu, éloigne d’abord le doigt du centre puis poursuis ton geste. Au clavier, sélectionne une roue avec Entrée ou Espace, puis utilise les flèches gauche et droite pour avancer par crans assistés de 6° au maximum.</p><p>Pour faire tomber un jeton, aligne assez largement son ouverture avec une encoche libre de la roue du dessous. Un simple contact des bords ne suffit plus. Si la réception est fermée, prépare cette roue lors d’un autre tour. Les petits repères fixes indiquent les passages.</p><p>En bas du plateau, les jetons déjà arrivés de l’autre joueur apparaissent en transparence, avec son compteur. Ses jetons encore en jeu restent sur sa propre face.</p><p>Le bouton haut-parleur en haut du plateau active ou coupe les sons. Un clic confirme leur réactivation. La rotation produit un petit cliquetis feutré, façon coffre-fort : plus tu tournes vite, plus les sons se rapprochent ; ils s’arrêtent avec ton geste. Le clic net signale seulement un passage suffisamment ouvert entre deux roues de ta face pendant ton tour ; une seule encoche devant un conduit ne suffit pas. Il accompagne aussi un halo et, si disponible, une brève vibration. Tu entends aussi les chutes adverses, même sur la face cachée, avec un bruit générique. Une courte mélodie accompagne la victoire ou la défaite seulement quand le résultat est dévoilé. Si aucun son ne sort, ouvre « Un problème de son ? » depuis l’accueil pour le relancer et le tester. Sur les anciens iPhone, désactive aussi le mode silencieux et monte le volume multimédia. Full et les simulations sans plateau restent silencieux.</p><p>Choisis Humain ou IA pour chaque joueur au début de la partie. Les IA ont trois niveaux : Facile, Normal et Difficile. Elles jouent sur cet appareil et ne voient que leur propre face. Contre une IA, ton plateau reste affiché : regarde les roues tourner pendant son tour, puis reprends la main directement. Le bouton « Duel automatique » de l’accueil prépare deux IA. Choisis leurs niveaux, le nombre de parties, les départs et l’affichage, puis lance la série : les IA jouent seules jusqu’au bilan des confrontations. Avec les départs variés, chaque position initiale est jouée deux fois en inversant le premier joueur ; avec les départs classiques, la même position est répétée. Sans plateau, seuls l’avancement et les scores s’affichent, à pleine vitesse. Avec le plateau, tu peux suivre les mouvements et régler la vitesse. Tu peux mettre la série en pause et reprendre quand tu veux. Le résultat est annoncé au passage normal de tour, même si la partie est déjà décidée.</p><p class="muted">Convention de cette adaptation : les sorties simultanées doivent former les prochains numéros consécutifs de chacune des séries concernées. Si des fins simultanées désignent des gagnants différents, la partie est nulle. Le calage des roues est estimé à partir de la vidéo du jeu original ; il ne constitue pas une reproduction exacte.</p>
+    <p>Choisis ton set pendant la préparation : <strong>Référence</strong> conserve le réglage habituel. <strong>Miroir 50</strong> utilise des roues symétriques et 50 positions sélectionnées. Le départ est tiré au sort ; une revanche propose son complément avec l’autre joueur qui commence. Les règles et les commandes restent les mêmes.</p>
+    <p>Les nouvelles parties proposent « Repères d’origine — estimés » : les roues retrouvent une position reconstituée d’après les flèches du jeu photographié. Ce départ reste une estimation et ne garantit pas l’équilibre des faces. Tu peux choisir « Ancien départ Cascado » pendant la préparation.</p><p>Pose le doigt sur une roue, maintiens-le et fais-le glisser autour de son centre pour la tourner. La roue suit ton mouvement, dans les deux sens, avec une légère aimantation près des alignements. Continue ton geste pour dépasser un alignement. Relâche pour t’arrêter ; garder le doigt immobile ne fait pas tourner. Si tu touches le moyeu, éloigne d’abord le doigt du centre puis poursuis ton geste. Au clavier, sélectionne une roue avec Entrée ou Espace, puis utilise les flèches gauche et droite pour avancer par crans assistés de 6° au maximum.</p><p>Pour faire tomber un jeton, aligne assez largement son ouverture avec une encoche libre de la roue du dessous. Un simple contact des bords ne suffit plus. Si la réception est fermée, prépare cette roue lors d’un autre tour. Les petits repères fixes indiquent les passages.</p><p>En bas du plateau, les jetons déjà arrivés de l’autre joueur apparaissent en transparence, avec son compteur. Ses jetons encore en jeu restent sur sa propre face.</p><p>Le bouton haut-parleur en haut du plateau active ou coupe les sons. Un clic confirme leur réactivation. La rotation produit un petit cliquetis feutré, façon coffre-fort : plus tu tournes vite, plus les sons se rapprochent ; ils s’arrêtent avec ton geste. Le clic net signale seulement un passage suffisamment ouvert entre deux roues de ta face pendant ton tour ; une seule encoche devant un conduit ne suffit pas. Il accompagne aussi un halo et, si disponible, une brève vibration. Tu entends aussi les chutes adverses, même sur la face cachée, avec un bruit générique. Une courte mélodie accompagne la victoire ou la défaite seulement quand le résultat est dévoilé. Si aucun son ne sort, ouvre « Son : aide et test » dans les options pour le relancer et le tester. Sur les anciens iPhone, désactive aussi le mode silencieux et monte le volume multimédia. Full et les simulations sans plateau restent silencieux.</p><p>Choisis Humain ou IA pour chaque joueur au début de la partie. Les IA ont trois niveaux : Facile, Normal et Difficile. Elles jouent sur cet appareil et ne voient que leur propre face. Contre une IA, ton plateau reste affiché : regarde les roues tourner pendant son tour, puis reprends la main directement. Pour regarder deux IA jouer, choisis IA pour chacun des joueurs dans « Nouvelle partie », puis leurs niveaux. Le résultat est annoncé au passage normal de tour, même si la partie est déjà décidée.</p><p class="muted">Convention de cette adaptation : les sorties simultanées doivent former les prochains numéros consécutifs de chacune des séries concernées. Si des fins simultanées désignent des gagnants différents, la partie est nulle. Le calage des roues est estimé à partir de la vidéo du jeu original ; il ne constitue pas une reproduction exacte.</p>
     <button class="primary" data-action="home">J’ai compris</button></section>`;
+  const preview = app.querySelector('[data-rules-preview]');
+  if(preview) preview.rulesPreviewCleanup = setupRulesPreview(preview);
 }
 
 async function confirmReveal() {
@@ -1245,16 +1259,17 @@ app.addEventListener('click',async event=>{
       break;
     case 'home':stopMotion();renderHome();break;
     case 'rules':renderRules();break;
-    case 'share-app':if(mode==='home')renderAppShare();break;
+    case 'options':renderOptions();break;
+    case 'share-app':if(['home','options'].includes(mode))renderAppShare();break;
     case 'share-send':await performAppShare();break;
     case 'share-copy':await performAppShare(true);break;
-    case 'sound-help':if(mode==='home')renderSoundHelp();break;
+    case 'sound-help':if(['home','options'].includes(mode))renderSoundHelp();break;
     case 'sound-test':await testSound();break;
-    case 'statistics':if(['home','result'].includes(mode))await renderStatistics();break;
+    case 'statistics':if(['home','options','result'].includes(mode))await renderStatistics();break;
     case 'statistics-retry':if(mode==='statistics')await renderStatistics('',true);break;
     case 'statistics-back':
       if(mode!=='statistics')break;
-      if(statisticsReturn==='result'&&session?.phase==='revealed-result')renderResult();else renderHome();
+      if(statisticsReturn==='result'&&session?.phase==='revealed-result')renderResult();else if(statisticsReturn==='options')renderOptions();else renderHome();
       break;
     case 'statistics-reset':if(mode==='statistics')confirmStatisticsReset();break;
     case 'statistics-cancel':if(mode==='statistics-reset')await renderStatistics('',true);break;
@@ -1283,7 +1298,7 @@ app.addEventListener('click',async event=>{
       if(deferredInstall){await deferredInstall.prompt();deferredInstall=null;}
       else {
         mode='install';
-        app.innerHTML=`<section class="screen rules">${brand}<h1>Le jeu, à portée de main.</h1><p>Sur iPhone : ouvre cette adresse dans Safari, touche Partager puis « Sur l’écran d’accueil ».</p><p>Sur Android : utilise le menu du navigateur puis « Installer l’application » ou « Ajouter à l’écran d’accueil ».</p><p>Attends l’indication « Prêt hors ligne » avant de couper la connexion. L’installation est facultative pour jouer.</p><button class="primary" data-action="home">Retour à l’accueil</button></section>`;
+        app.innerHTML=`<section class="screen rules">${brand}<h1>Le jeu, à portée de main.</h1><p>Sur iPhone : ouvre cette adresse dans Safari, touche Partager puis « Sur l’écran d’accueil ».</p><p>Sur Android : utilise le menu du navigateur puis « Installer l’application » ou « Ajouter à l’écran d’accueil ».</p><p>Attends l’indication « Prêt hors ligne » avant de couper la connexion. L’installation est facultative pour jouer.</p><button class="primary" data-action="options">Retour aux options</button></section>`;
       }break;
     case 'update':
       if(mode!=='home')return;

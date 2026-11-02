@@ -101,6 +101,11 @@ p { line-height: 1.5; }
 .preparation input[type="radio"] { width: 20px; height: 20px; accent-color: var(--navy); }
 .preparation .player-setup { display: grid; gap: 12px; padding: 12px; border: 1px solid #c9d6ce; border-radius: 14px; }
 .player-setup legend { padding: 0 5px; font-size: .85rem; }
+.human-name-fields { display: grid; min-width: 0; gap: 12px; }
+.game-options { display: grid; min-width: 0; min-inline-size: 0; gap: 14px; margin: 0; padding: 16px; border: 1px solid #c9d6ce; border-radius: 14px; }
+.game-options legend { padding: 0 5px; font-weight: 650; }
+.game-options [data-reference-start] { display: grid; gap: 10px; }
+.game-options .muted { font-size: .8rem; line-height: 1.5; }
 .ai-wait { display: flex; flex-direction: column; gap: 24px; justify-content: center; }
 .ai-wait .brand { position: absolute; top: calc(22px + var(--safe-top)); }
 .ai-wait .avatar, .ai-thinking { margin: 0 auto; }

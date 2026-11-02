@@ -12,6 +12,7 @@ import { configureStartingPosition, normalizeStartConfig, ORIGINAL_START_MODE,
   ORIGINAL_START_ANGLES, startingAnglesFor, MIROIR50_START_MODE, randomMiroir50Seed,
   miroir50RematchSeed, miroir50ScheduleEntry } from '../src/starting-position.js';
 import { GAME_SETS, getGameSet, gameSetIdForGeometry } from '../src/game-sets.js';
+import { loadHumanRoster, normalizeHumanName, mergeHumanNames, rememberHumanNames } from '../src/player-roster.js';
 
 const source = await readFile(new URL('../src/app.js', import.meta.url), 'utf8');
 function between(start, end) {
@@ -46,7 +47,8 @@ function harness(saved = null, options = {}) {
   const formListeners = new Map();
   const calls = [];
   const saves = [];
-  const preferences = new Map();
+  const preferences = options.preferences ?? new Map();
+  const storage = { getItem: name => preferences.get(name) ?? null, setItem: (name, value) => preferences.set(name, value) };
   const form = { addEventListener: (name, callback) => formListeners.set(name, callback) };
   const countField = { value: '10', addEventListener() {}, setCustomValidity() {}, reportValidity() {} };
   const app = {
@@ -62,6 +64,10 @@ function harness(saved = null, options = {}) {
     GEOMETRY_VERSION, ORIGINAL_START_MODE, ORIGINAL_START_ANGLES, AI_LEVELS,
     GAME_SETS, getGameSet, gameSetIdForGeometry, MIROIR50_START_MODE, randomMiroir50Seed, miroir50RematchSeed,
     gameSetPreference: options.setPreference ?? 'reference',
+    gameStartPreference: options.gameStartPreference ?? ORIGINAL_START_MODE,
+    humanRoster: options.humanRoster ?? loadHumanRoster(storage),
+    normalizeHumanName, mergeHumanNames,
+    rememberHumanNames: (roster, names, suppliedStorage = storage) => rememberHumanNames(roster, names, suppliedStorage),
     seriesCountPreference: 10, simulationModePreference: 'headless', startModePreference: options.preference ?? 'varied',
     aiGeneration: 0, selected: null, document: { hidden: false }, brand: '<div>CASCADO</div>',
     createGame, configurePlayers, playerSettings, newSession,
@@ -82,7 +88,7 @@ function harness(saved = null, options = {}) {
       }
       get(name) { return this.values.get(name) ?? null; }
     },
-    localStorage: { setItem: (name, value) => preferences.set(name, value) },
+    localStorage: storage,
     escape: value => String(value), speedSlot: () => '', syncSpeedPanel() {},
     stopMotion() { context.aiGeneration++; },
     mixedGame: () => context.session && singleHumanIndex(context.session.game) !== null,
@@ -137,9 +143,10 @@ for (const preference of ['varied', 'classic', ORIGINAL_START_MODE]) {
 }
 
 test('ordinary setup can explicitly choose the former neutral pose and still configures it before saving', async () => {
-  const h = harness();
+  const h = harness(null, { gameStartPreference: 'classic' });
   h.prepare();
-  await h.submit({ 'start-mode': 'classic' });
+  assert.equal(h.defaults().get('start-mode'), 'classic');
+  await h.submit();
   assert.equal(h.calls.length, 1);
   assert.equal(h.calls[0].config.mode, 'classic');
   assert.deepEqual(h.context.session.game.angles, [0, 0, 0, 0, 0]);
@@ -281,17 +288,19 @@ test('setup cannot replace or reconfigure a save before storage is ready', async
 
 for (const automatic of [false, true]) {
   test(`${automatic ? 'automatic' : 'ordinary'} setup selects the exact Miroir 50 profile and pool before saving`, async () => {
-    const h = harness();
+    const h = harness(null, { setPreference: 'miroir-50' });
     h.prepare(false, false, automatic);
-    assert.equal(h.defaults().get('game-set'), 'reference');
-    await h.submit({ 'game-set': 'miroir-50', 'start-mode': 'unknown', 'series-count': 100, starter: 1 });
+    assert.equal(h.defaults().get('game-set'), 'miroir-50');
+    assert.match(h.app.innerHTML, /<input[^>]*type="hidden"[^>]*name="game-set"[^>]*value="miroir-50"/);
+    assert.doesNotMatch(h.app.innerHTML, /<select[^>]*name="game-set"/);
+    await h.submit({ 'start-mode': 'unknown', 'series-count': 100, starter: 1 });
     const game = h.context.session.game;
     assert.equal(game.gameSetId, 'miroir-50');
     assert.equal(game.geometryVersion, getGameSet('miroir-50').geometryVersion);
     assert.equal(game.startConfig.mode, MIROIR50_START_MODE);
     assert.deepEqual(game.startingAngles, miroir50ScheduleEntry(0, 1).angles);
     assert.equal(h.saves[0].session.game.startingPose.poseId, game.startingPose.poseId);
-    assert.equal(h.preferences.get('ddc-game-set'), 'miroir-50');
+    assert.equal(h.preferences.has('ddc-game-set'), false, 'Options owns the set preference; starting a game does not rewrite it');
     assert.equal(h.preferences.has('ddc-start-mode'), false);
     assert.equal(h.context.app.dataset.gameSet, 'miroir-50');
     assert.ok(game.faces.every(face => face.queue.length === 10));
@@ -343,4 +352,81 @@ test('remembering Miroir 50 only selects a fresh setup and never changes a resum
   assert.deepEqual(saved, snapshot);
   assert.equal(h.calls.length, 0);
   assert.equal(h.saves.length, 0);
+});
+
+test('ordinary setup takes hidden next-game settings from Options without rewriting their preferences', async () => {
+  const h = harness(null, { gameStartPreference: 'classic', setPreference: 'reference', preference: 'varied' });
+  h.prepare();
+  assert.equal(h.defaults().get('game-set'), 'reference');
+  assert.equal(h.defaults().get('start-mode'), 'classic');
+  assert.match(h.app.innerHTML, /<input[^>]*type="hidden"[^>]*name="game-set"/);
+  assert.match(h.app.innerHTML, /<input[^>]*type="hidden"[^>]*name="start-mode"/);
+  assert.doesNotMatch(h.app.innerHTML, /<select[^>]*name="(?:game-set|start-mode)"/);
+  await h.submit();
+  assert.equal(h.context.session.game.startConfig, undefined);
+  assert.deepEqual(h.context.session.game.angles, [0, 0, 0, 0, 0]);
+  for (const key of ['ddc-game-set', 'ddc-game-start-mode', 'ddc-start-mode']) assert.equal(h.preferences.has(key), false);
+});
+
+test('new human names are normalized, remembered and selectable on subsequent setup and a later app opening', async () => {
+  const h = harness();
+  h.prepare();
+  await h.submit({ controller1: 'human', controller2: 'human', 'saved-name1': 'new', 'saved-name2': 'new', player1: '  Zoe\u0301   Martin  ', player2: '  Noé  ' });
+  assert.deepEqual(Array.from(h.context.session.game.players, p => p.name), ['Zoé Martin', 'Noé']);
+  const stored = JSON.parse(h.preferences.get('ddc-human-roster'));
+  assert.deepEqual(stored.lastNames, ['Zoé Martin', 'Noé']);
+  assert.ok(stored.names.includes('Zoé Martin'));assert.ok(stored.names.includes('Noé'));
+  h.prepare();
+  assert.equal(h.defaults().get('saved-name1'), String(h.context.humanRoster.names.indexOf('Zoé Martin')));
+  assert.equal(h.defaults().get('saved-name2'), String(h.context.humanRoster.names.indexOf('Noé')));
+  await h.submit({ player1: 'Ignored text for a saved name', player2: 'Ignored text for a saved name' });
+  assert.deepEqual(Array.from(h.context.session.game.players, p => p.name), ['Zoé Martin', 'Noé']);
+  const reopened = harness(null, { preferences: h.preferences });
+  reopened.prepare();
+  assert.equal(reopened.defaults().get('saved-name1'), String(reopened.context.humanRoster.names.indexOf('Zoé Martin')));
+  assert.equal(reopened.defaults().get('saved-name2'), String(reopened.context.humanRoster.names.indexOf('Noé')));
+  await reopened.submit();
+  assert.deepEqual(Array.from(reopened.context.session.game.players, p => p.name), ['Zoé Martin', 'Noé']);
+});
+
+test('a mixed game ignores the AI name fields and remembers only the chosen human', async () => {
+  const roster = rememberHumanNames(loadHumanRoster(null), ['Anaïs', 'Noé'], null);
+  const h = harness(null, { humanRoster: roster });
+  h.prepare();
+  await h.submit({ controller1: 'ai', level1: 'hard', player1: 'Should not be remembered', 'saved-name1': 'new',
+    controller2: 'human', 'saved-name2': 'new', player2: '  Éloïse  ' });
+  assert.deepEqual(Array.from(h.context.session.game.players, p => p.name), ['IA 1', 'Éloïse']);
+  assert.equal(h.context.session.game.players[0].level, 'hard');
+  assert.equal(h.context.session.game.players[0].controller, 'ai');
+  const stored = JSON.parse(h.preferences.get('ddc-human-roster'));
+  assert.deepEqual(stored.lastNames, ['Anaïs', 'Éloïse']);
+  assert.ok(!stored.names.includes('IA 1'));assert.ok(!stored.names.includes('Should not be remembered'));
+  assert.ok(stored.names.includes('Anaïs'));assert.ok(stored.names.includes('Éloïse'));
+});
+
+test('an automatic duel has no editable name fields, applies both levels and preserves remembered humans', async () => {
+  const roster = rememberHumanNames(loadHumanRoster(null), ['Anaïs', 'Noé'], null);
+  const h = harness(null, { humanRoster: roster });
+  h.prepare(false, false, true);
+  for (const [, attributes] of h.app.innerHTML.matchAll(/<input\b([^>]*)>/g)) {
+    if (/\bname="player[12]"/.test(attributes)) assert.ok(/\btype="hidden"/.test(attributes) || /\bdisabled\b/.test(attributes));
+  }
+  await h.submit({ level1: 'hard', level2: 'easy', player1: 'Injected name 1', player2: 'Injected name 2', 'series-count': 2 });
+  const players = h.context.session.game.players;
+  assert.deepEqual(Array.from(players, p => p.name), ['IA 1', 'IA 2']);
+  assert.deepEqual(Array.from(players, p => p.level), ['hard', 'easy']);
+  assert.ok(players.every(p => p.controller === 'ai'));
+  assert.deepEqual(structuredClone(h.context.humanRoster), roster);
+  assert.ok(!h.context.humanRoster.names.includes('IA 1'));assert.ok(!h.context.humanRoster.names.includes('IA 2'));
+  assert.ok(!h.context.humanRoster.names.includes('Injected name 1'));
+});
+
+test('invalid saved-name indices fall back to normalized new human names without selecting a different person', async () => {
+  const roster = rememberHumanNames(loadHumanRoster(null), ['Anaïs', 'Noé'], null);
+  const h = harness(null, { humanRoster: roster });
+  h.prepare();
+  await h.submit({ controller1: 'human', controller2: 'human', 'saved-name1': '999', 'saved-name2': '-1',
+    player1: '  Zoé  ', player2: '  Émile  ' });
+  assert.deepEqual(Array.from(h.context.session.game.players, p => p.name), ['Zoé', 'Émile']);
+  assert.deepEqual(JSON.parse(h.preferences.get('ddc-human-roster')).lastNames, ['Zoé', 'Émile']);
 });

@@ -23,6 +23,7 @@ import { getResultSound } from './result-sound.js';
 import { AI_LEVELS } from './ai.js';
 import { createAIClient } from './ai-client.js';
 import { playerSettings, isAIPlayer, singleHumanIndex, displayedFaceIndex, configurePlayers } from './players.js';
+import { loadHumanRoster, mergeHumanNames, rememberHumanNames, normalizeHumanName } from './player-roster.js';
 import { createAIRotation, advanceAIRotation, completeAIRotation, AI_THINK_MS, AI_SELECT_MS, AI_TOKEN_DURATION_SCALE, AI_SETTLE_MS } from './ai-motion.js';
 import { createSeries, seriesOf, seriesGameId, parseSeriesCount, recordSeriesResult, createNextSeriesGame } from './series.js';
 import { createSimulationClient } from './simulation-client.js';
@@ -82,7 +83,10 @@ let seriesCountPreference = 10;
 let simulationModePreference = 'headless';
 let startModePreference = 'varied';
 let gameSetPreference = 'reference';
+let gameStartPreference = ORIGINAL_START_MODE;
+let humanRoster = loadHumanRoster();
 try { const saved = localStorage.getItem('ddc-game-set'); if(GAME_SETS.some(set => set.id === saved)) gameSetPreference = saved; } catch { /* Optional preference. */ }
+try { const saved = localStorage.getItem('ddc-game-start-mode'); if(['classic', ORIGINAL_START_MODE].includes(saved)) gameStartPreference = saved; } catch { /* Optional preference. */ }
 try { seriesCountPreference = parseSeriesCount(localStorage.getItem('ddc-series-count')) ?? 10; } catch { /* Optional preference. */ }
 try { if(localStorage.getItem('ddc-simulation-mode') === 'board') simulationModePreference = 'board'; } catch { /* Optional preference. */ }
 try { const saved = localStorage.getItem('ddc-start-mode'); if(['classic', ORIGINAL_START_MODE].includes(saved)) startModePreference = saved; } catch { /* Optional preference. */ }
@@ -220,7 +224,7 @@ function renderHome() {
     <div class="actions">${session ? '<button class="primary" data-action="resume">Reprendre la partie</button>' : ''}<button class="${session ? 'secondary' : 'primary'}" data-action="new">Nouvelle partie</button><button class="secondary" data-action="rules">Comment jouer</button><button class="secondary" data-action="options">Options</button></div>
     <div class="install-status" id="install-status">${offlineStatus()}</div>
     ${updateAvailable ? '<button class="secondary" data-action="update">Une mise à jour est disponible</button>' : ''}
-    <p class="muted local-note">Sans compte · Partie enregistrée sur cet appareil<br><span data-release>Version 1.40</span></p></section>`;
+    <p class="muted local-note">Sans compte · Partie enregistrée sur cet appareil<br><span data-release>Version 1.41</span></p></section>`;
 }
 
 function renderOptions() {
@@ -228,8 +232,40 @@ function renderOptions() {
   stopMotion();
   mode = 'options';
   app.innerHTML = `<section class="screen rules options">${brand}<p class="eyebrow">OPTIONS</p><h1 tabindex="-1">Tout à portée de main.</h1>
+    <fieldset class="game-options"><legend>Prochaines parties</legend>
+      <label class="field"><span>Set de jeu</span><select name="game-set" aria-describedby="game-set-help">${GAME_SETS.map(set => `<option value="${set.id}" ${set.id===gameSetPreference ? 'selected' : ''}>${set.label}</option>`).join('')}</select></label>
+      <p id="game-set-help" class="muted">Référence : le réglage habituel. Miroir 50 : des roues symétriques et 50 positions sélectionnées.</p>
+      <div data-reference-start ${gameSetPreference==='miroir-50' ? 'hidden' : ''}><label class="field"><span>Position de départ</span><select name="start-mode" aria-describedby="start-mode-help"><option value="${ORIGINAL_START_MODE}" ${gameStartPreference===ORIGINAL_START_MODE ? 'selected' : ''}>Repères d’origine — estimés</option><option value="classic" ${gameStartPreference==='classic' ? 'selected' : ''}>Ancien départ Cascado</option></select></label><p id="start-mode-help" class="muted">Les repères d’origine sont reconstitués d’après les photos du jeu ; leur position reste une estimation.</p></div>
+      <p class="muted" data-miroir-start ${gameSetPreference==='miroir-50' ? '' : 'hidden'}><strong>Position de départ</strong><br>Une des 50 positions est tirée au sort. Une revanche propose son complément avec l’autre joueur qui commence.</p>
+      <p class="muted" id="game-options-status" role="status">Enregistré automatiquement sur cet appareil. Une partie en cours ou une revanche garde ses réglages.</p>
+    </fieldset>
     <div class="actions"><button class="secondary" data-action="statistics">Statistiques</button><button class="secondary" data-action="share-app">Partager l’application</button><button class="secondary" data-action="install">Installer sur mon téléphone</button><button class="secondary" data-action="sound-help">Son : aide et test</button></div>
     <button class="primary" data-action="home">Retour à l’accueil</button></section>`;
+  const setControl = app.querySelector('[name="game-set"]');
+  const startControl = app.querySelector('[name="start-mode"]');
+  const saveOptions = () => {
+    const set = setControl.value;
+    const start = startControl.value;
+    if(!GAME_SETS.some(candidate => candidate.id === set) || !['classic', ORIGINAL_START_MODE].includes(start)) return;
+    gameSetPreference = set;
+    gameStartPreference = start;
+    const mirror = set === 'miroir-50';
+    app.querySelector('[data-reference-start]').hidden = mirror;
+    app.querySelector('[data-miroir-start]').hidden = !mirror;
+    startControl.disabled = mirror;
+    let stored = true;
+    try {
+      localStorage.setItem('ddc-game-set', set);
+      localStorage.setItem('ddc-game-start-mode', start);
+    } catch { stored = false; }
+    app.querySelector('#game-options-status').textContent = stored
+      ? 'Réglages enregistrés pour les prochaines parties. Une reprise ou une revanche garde ses réglages.'
+      : 'Réglages conservés pour cette fenêtre. Le navigateur ne permet pas leur enregistrement.';
+  };
+  if(startControl) startControl.disabled = gameSetPreference === 'miroir-50';
+  setControl?.addEventListener('change', saveOptions);
+  startControl?.addEventListener('change', saveOptions);
+  globalThis.window?.scrollTo?.(0, 0);
   focusFirst();
 }
 
@@ -411,7 +447,12 @@ function offlineStatus() {
 function prepare(replace = false, rematch = false, automatic = false) {
   stopMotion();
   mode = 'preparation';
-  const names = automatic && !rematch ? ['IA 1','IA 2'] : session?.game.players.map(p => p.name) || ['Camille','Léa'];
+  humanRoster = mergeHumanNames(humanRoster, session?.game.players.filter(p => playerSettings(p).controller === 'human').map(p => p.name) ?? []);
+  const names = [0, 1].map(index => {
+    const previous = session?.game.players[index];
+    return (previous && playerSettings(previous).controller === 'human' ? normalizeHumanName(previous.name) : null)
+      || humanRoster.lastNames[index] || ['Camille', 'Léa'][index];
+  });
   const settings = [0, 1].map(index => {
     const saved = playerSettings(session?.game.players[index]);
     return automatic ? {controller:'ai',level:saved.controller === 'ai' ? saved.level : 'normal'} : saved;
@@ -419,50 +460,57 @@ function prepare(replace = false, rematch = false, automatic = false) {
   const starter = rematch ? 1 - (session.game.starter ?? 0) : 0;
   const seriesTarget = rematch ? seriesOf(session.game)?.target ?? seriesCountPreference : seriesCountPreference;
   const simulationMode = rematch ? (session.game.simulationMode === 'headless' ? 'headless' : 'board') : simulationModePreference;
-  const startMode = rematch ? normalizeStartConfig(session.game.startConfig)?.mode ?? 'classic' : automatic ? startModePreference : ORIGINAL_START_MODE;
+  const startMode = rematch ? normalizeStartConfig(session.game.startConfig)?.mode ?? 'classic' : automatic ? startModePreference : gameStartPreference;
   const setId = rematch ? gameSetIdForGeometry(session.game.geometryVersion) : gameSetPreference;
-  const mirrorSet = setId === 'miroir-50';
-  const setField = `<label class="field game-set-field"><span>Set de jeu</span><select name="game-set" aria-describedby="game-set-help">${GAME_SETS.map(set => `<option value="${set.id}" ${set.id===setId ? 'selected' : ''}>${set.label}</option>`).join('')}</select></label><p id="game-set-help" class="muted">Référence : le réglage habituel de Cascado. Miroir 50 : des roues symétriques et 50 positions de départ sélectionnées.</p>`;
-
-  const startingField = `<label class="field"><span>${automatic ? 'Départs' : 'Position des roues au départ'}</span><select name="start-mode" aria-describedby="start-mode-help">${automatic ? `<option value="varied" ${startMode==='varied' ? 'selected' : ''}>Variés — comparer les IA</option>` : ''}<option value="${ORIGINAL_START_MODE}" ${startMode===ORIGINAL_START_MODE ? 'selected' : ''}>Repères d’origine — estimés</option><option value="classic" ${startMode==='classic' ? 'selected' : ''}>${automatic ? 'Classiques — même position' : 'Ancien départ Cascado'}</option></select></label><p id="start-mode-help" class="muted">${automatic ? 'Variés : chaque position est jouée deux fois, premier joueur inversé. La dernière reste seule si le total est impair. Les deux autres réglages répètent une position fixe. ' : ''}Les repères d’origine sont reconstitués d’après les photos du jeu ; leur position reste une estimation.</p>`;
-  const startingControls = `<div data-reference-start ${mirrorSet ? 'hidden' : ''}>${startingField}</div><p class="starting-protocol muted" data-miroir-start ${mirrorSet ? '' : 'hidden'}>${automatic ? 'Miroir 50 : les départs complémentaires s’enchaînent, avec premier joueur inversé. Une série de 100 parties couvre les 50 positions avec chacun des deux premiers joueurs.' : 'Miroir 50 : une des 50 positions est tirée au sort. En revanche, le départ complémentaire est proposé avec l’autre joueur qui commence.'}</p>`;
   const fields = [0, 1].map(index => {
     const seat = index + 1;
     const config = settings[index];
-    return `<fieldset class="player-setup"><legend>${index ? '◆' : '●'} ${automatic ? escape(names[index]) : `Joueur ${seat}`}</legend>
-      ${automatic ? `<input type="hidden" name="player${seat}" value="${escape(names[index])}"><input type="hidden" name="controller${seat}" value="ai">` : `<label class="field"><span>Prénom du joueur ${seat}</span><input name="player${seat}" autocomplete="off" maxlength="20" required value="${escape(names[index])}"></label>
-      <label class="field"><span>Qui joue pour le joueur ${seat} ?</span><select name="controller${seat}"><option value="human" ${config.controller === 'human' ? 'selected' : ''}>Humain</option><option value="ai" ${config.controller === 'ai' ? 'selected' : ''}>IA</option></select></label>`}
+    const knownIndex = humanRoster.names.indexOf(names[index]);
+    return `<fieldset class="player-setup" data-player-seat="${seat}"><legend>${index ? '◆' : '●'} Joueur ${seat}</legend>
+      ${automatic ? `<input type="hidden" name="controller${seat}" value="ai">` : `<label class="field"><span>Joueur ${seat}</span><select name="controller${seat}"><option value="human" ${config.controller === 'human' ? 'selected' : ''}>Humain</option><option value="ai" ${config.controller === 'ai' ? 'selected' : ''}>IA</option></select></label>
+      <div class="human-name-fields" data-human-fields ${config.controller === 'ai' ? 'hidden' : ''}>
+        <label class="field"><span>Nom du joueur ${seat}</span><select name="saved-name${seat}" ${config.controller === 'ai' ? 'disabled' : ''}>${humanRoster.names.map((name, position) => `<option value="${position}" ${position===knownIndex ? 'selected' : ''}>${escape(name)}</option>`).join('')}<option value="new" ${knownIndex<0 ? 'selected' : ''}>Créer un nouveau nom…</option></select></label>
+        <label class="field" data-new-name ${knownIndex<0 ? '' : 'hidden'}><span>Nouveau nom du joueur ${seat}</span><input name="player${seat}" autocomplete="off" maxlength="20" ${knownIndex<0 && config.controller==='human' ? 'required' : 'disabled'} value="${escape(names[index])}"></label>
+      </div>`}
       <label class="field ai-level" ${config.controller === 'ai' ? '' : 'hidden'}><span>Niveau de l’IA ${seat}</span><select name="level${seat}" ${config.controller === 'ai' ? '' : 'disabled'}>${AI_LEVELS.map(level => `<option value="${level.id}" ${config.level === level.id ? 'selected' : ''}>${level.label}</option>`).join('')}</select></label></fieldset>`;
   }).join('');
-  app.innerHTML = `<section class="screen preparation${automatic ? ' is-automatic' : ''}">${brand}<p class="eyebrow">${rematch ? 'REVANCHE' : automatic ? 'IA CONTRE IA' : 'NOUVELLE PARTIE'}</p><h1>${automatic ? 'Duel automatique' : 'Qui joue ?'}</h1><p>${automatic ? 'Choisis les niveaux, le nombre de parties, les départs et l’affichage. Les IA enchaînent les confrontations, puis affichent leur bilan.' : 'Chacun aura sa face du plateau. Choisissez qui commence.'}</p>
-    <form id="setup">${setField}${automatic ? `<div class="automatic-levels">${fields}</div>` : fields}${automatic ? `<div class="series-count-field"><label class="field"><span>Nombre de parties</span><input type="number" name="series-count" inputmode="numeric" min="1" max="1000" step="1" required value="${seriesTarget}" aria-describedby="series-count-help"></label><div class="series-presets" role="group" aria-label="Nombre de parties proposé">${[10,50,100].map(count => `<button class="secondary" type="button" data-action="series-preset" data-count="${count}" aria-pressed="${seriesTarget===count}">${count} parties</button>`).join('')}</div><p id="series-count-help" class="muted">De 1 à 1 000 parties. Garde le jeu ouvert pour calculer.</p>${startingControls}<label class="field"><span>Affichage</span><select name="simulation-mode" aria-describedby="simulation-mode-help"><option value="headless" ${simulationMode==='headless' ? 'selected' : ''}>Sans plateau — simulation rapide</option><option value="board" ${simulationMode==='board' ? 'selected' : ''}>Avec le plateau</option></select></label><p id="simulation-mode-help" class="muted">Sans plateau, les IA calculent à pleine vitesse. Seuls les scores et l’avancement sont affichés.</p></div>` : startingControls}<div data-setup-speed ${settings.some(config => config.controller === 'ai') && (!automatic || simulationMode !== 'headless') ? '' : 'hidden'}>${speedSlot()}</div>
-    ${automatic ? `<input type="hidden" name="starter" value="${starter}"><p class="automatic-start">${escape(names[starter])} commence, puis le premier joueur alterne à chaque partie. Tu peux mettre la série en pause.</p>` : `<label class="field"><span>Premier joueur</span><select name="starter"><option value="0" ${starter === 0 ? 'selected' : ''}>Joueur 1</option><option value="1" ${starter === 1 ? 'selected' : ''}>Joueur 2</option></select></label>`}
+  app.innerHTML = `<section class="screen preparation${automatic ? ' is-automatic' : ''}">${brand}<p class="eyebrow">${rematch ? 'REVANCHE' : automatic ? 'IA CONTRE IA' : 'NOUVELLE PARTIE'}</p><h1>${automatic ? 'Duel automatique' : 'Qui joue ?'}</h1><p>${automatic ? 'Choisis les niveaux, le nombre de parties et l’affichage. Les IA enchaînent les confrontations, puis affichent leur bilan.' : 'Choisis un nom enregistré ou crée-en un nouveau. Les noms restent sur cet appareil.'}</p>
+    <form id="setup"><input type="hidden" name="game-set" value="${setId}"><input type="hidden" name="start-mode" value="${startMode}">${automatic ? `<div class="automatic-levels">${fields}</div>` : fields}${automatic ? `<div class="series-count-field"><label class="field"><span>Nombre de parties</span><input type="number" name="series-count" inputmode="numeric" min="1" max="1000" step="1" required value="${seriesTarget}" aria-describedby="series-count-help"></label><div class="series-presets" role="group" aria-label="Nombre de parties proposé">${[10,50,100].map(count => `<button class="secondary" type="button" data-action="series-preset" data-count="${count}" aria-pressed="${seriesTarget===count}">${count} parties</button>`).join('')}</div><p id="series-count-help" class="muted">De 1 à 1 000 parties. Garde le jeu ouvert pour calculer.</p><label class="field"><span>Affichage</span><select name="simulation-mode" aria-describedby="simulation-mode-help"><option value="headless" ${simulationMode==='headless' ? 'selected' : ''}>Sans plateau — simulation rapide</option><option value="board" ${simulationMode==='board' ? 'selected' : ''}>Avec le plateau</option></select></label><p id="simulation-mode-help" class="muted">Sans plateau, les IA calculent à pleine vitesse. Seuls les scores et l’avancement sont affichés.</p></div>` : ''}<div data-setup-speed ${settings.some(config => config.controller === 'ai') && (!automatic || simulationMode !== 'headless') ? '' : 'hidden'}>${speedSlot()}</div>
+    ${automatic ? `<input type="hidden" name="starter" value="${starter}"><p class="automatic-start">IA ${starter+1} commence, puis le premier joueur alterne à chaque partie. Tu peux mettre la série en pause.</p>` : `<label class="field"><span>Premier joueur</span><select name="starter"><option value="0" ${starter === 0 ? 'selected' : ''}>Joueur 1</option><option value="1" ${starter === 1 ? 'selected' : ''}>Joueur 2</option></select></label>`}
     ${replace ? '<p class="replacement-note">Démarrer remplacera la partie enregistrée sur cet appareil.</p>' : ''}
     <button class="primary" type="submit">${automatic ? (replace ? 'Remplacer et lancer' : 'Lancer la série') : replace ? 'Remplacer et commencer' : 'Commencer la partie'}</button></form>
     <button class="secondary" data-action="home">Retour</button></section>`;
+  globalThis.window?.scrollTo?.(0, 0);
   app.querySelectorAll('select[name^="controller"]').forEach(control => control.addEventListener('change', () => {
-    const field = control.closest('fieldset').querySelector('.ai-level');
+    const group = control.closest('fieldset');
+    const field = group.querySelector('.ai-level');
     field.hidden = control.value !== 'ai';
     field.querySelector('select').disabled = field.hidden;
+    const human = control.value === 'human';
+    group.querySelector('[data-human-fields]').hidden = !human;
+    const choice = group.querySelector('select[name^="saved-name"]');
+    const input = group.querySelector('input[name^="player"]');
+    choice.disabled = !human;
+    input.disabled = !human || choice.value !== 'new';
+    input.required = !input.disabled;
     app.querySelector('[data-setup-speed]').hidden = ![...app.querySelectorAll('select[name^="controller"]')].some(select => select.value === 'ai');
     syncSpeedPanel();
   }));
+  app.querySelectorAll('select[name^="saved-name"]').forEach(control => control.addEventListener('change', () => {
+    const group = control.closest('fieldset');
+    const fresh = control.value === 'new';
+    const input = group.querySelector('input[name^="player"]');
+    input.setCustomValidity('');
+    group.querySelector('[data-new-name]').hidden = !fresh;
+    input.disabled = !fresh;
+    input.required = fresh;
+    if(fresh) { input.value = ''; input.focus({preventScroll:true}); }
+  }));
+  app.querySelectorAll('input[name^="player"]').forEach(input => input.addEventListener('input', () => input.setCustomValidity('')));
   app.querySelector('[name="simulation-mode"]')?.addEventListener('change',event => {
     app.querySelector('[data-setup-speed]').hidden = event.target.value === 'headless';
     syncSpeedPanel();
   });
-  const setControl = app.querySelector('[name="game-set"]');
-  const syncSetControls = () => {
-    const mirror = (setControl?.value ?? setId) === 'miroir-50';
-    const referenceStart = app.querySelector('[data-reference-start]');
-    const mirrorStart = app.querySelector('[data-miroir-start]');
-    const startControl = app.querySelector('[name="start-mode"]');
-    if(referenceStart) referenceStart.hidden = mirror;
-    if(mirrorStart) mirrorStart.hidden = !mirror;
-    if(startControl) startControl.disabled = mirror;
-  };
-  setControl?.addEventListener('change',syncSetControls);
-  syncSetControls();
   const countField = app.querySelector('[name="series-count"]');
   countField?.addEventListener('input',() => {
     const count = parseSeriesCount(countField.value);
@@ -475,21 +523,33 @@ function prepare(replace = false, rematch = false, automatic = false) {
     const data = new FormData(event.currentTarget);
     const target = automatic ? parseSeriesCount(data.get('series-count')) : null;
     if(automatic && target === null) { countField.reportValidity();return; }
-    const chosenNames = automatic ? [...names] : [String(data.get('player1')).trim() || 'Joueur 1', String(data.get('player2')).trim() || 'Joueur 2'];
+    const configurations = [1, 2].map(seat => playerSettings({controller:automatic ? 'ai' : data.get(`controller${seat}`),level:data.get(`level${seat}`)}));
+    const chosenNames = configurations.map((config, index) => {
+      if(config.controller === 'ai') return `IA ${index+1}`;
+      const selectedName = data.get(`saved-name${index+1}`);
+      const known = typeof selectedName === 'string' && /^\d+$/.test(selectedName) ? humanRoster.names[Number(selectedName)] : null;
+      return normalizeHumanName(known ?? data.get(`player${index+1}`));
+    });
+    const emptyName = chosenNames.findIndex(name => !name);
+    if(emptyName >= 0) {
+      const input = app.querySelector(`[name="player${emptyName+1}"]`);
+      input?.setCustomValidity('Saisis un nom pour ce joueur.');
+      input?.reportValidity();
+      return;
+    }
     const chosenStarter = automatic ? starter : Number(data.get('starter'));
     const chosenSetId = data.get('game-set');
     if(!GAME_SETS.some(set => set.id === chosenSetId)) return;
     const chosenSet = getGameSet(chosenSetId);
     const chosenStartMode = chosenSetId === 'miroir-50' ? MIROIR50_START_MODE : data.get('start-mode');
     if(chosenSetId === 'reference' && !(automatic ? ['classic', 'varied', ORIGINAL_START_MODE] : ['classic', ORIGINAL_START_MODE]).includes(chosenStartMode))return;
-    const game = configurePlayers(createGame(chosenNames, chosenStarter, chosenSet.geometryVersion), [1, 2].map(seat => ({controller:automatic ? 'ai' : data.get(`controller${seat}`),level:data.get(`level${seat}`)})));
+    const game = configurePlayers(createGame(chosenNames, chosenStarter, chosenSet.geometryVersion), configurations);
     const mirrorRematch = rematch && !automatic && chosenSetId === 'miroir-50' && gameSetIdForGeometry(session.game.geometryVersion) === 'miroir-50';
     const seed = chosenSetId === 'miroir-50'
       ? mirrorRematch ? miroir50RematchSeed(session.game) : randomMiroir50Seed(() => crypto.getRandomValues(new Uint32Array(1))[0] / 0x100000000)
       : chosenStartMode==='varied' ? crypto.getRandomValues(new Uint32Array(1))[0] : 1;
     configureStartingPosition(game,{mode:chosenStartMode,seed},1);
-    gameSetPreference = chosenSetId;
-    try { localStorage.setItem('ddc-game-set',chosenSetId); } catch { /* Optional preference. */ }
+    humanRoster = rememberHumanNames(humanRoster, chosenNames.map((name, index) => configurations[index].controller === 'human' ? name : null));
     if(automatic) {
       if(chosenSetId === 'reference') {
         startModePreference = chosenStartMode;
@@ -1158,8 +1218,8 @@ function renderRules() {
     ${rulesPreviewMarkup()}
     <ol><li>Chacun possède dix jetons : une série de 1 à 5 à gauche et une autre à droite, distinguées par leur couleur et leur symbole.</li><li>À ton tour, choisis une roue et tourne-la lentement. Les deux faces bougent ensemble.</li><li>Tu peux t’arrêter, reprendre et changer de sens sur cette même roue.</li><li>La dernière roue jouée par l’adversaire est interdite. Exception : ton dernier jeton est encore dans la roue 5.</li><li>Pour gagner, sors les dix jetons en respectant l’ordre de 1 à 5 dans chaque série. Tu peux alterner les deux séries. Une sortie hors ordre dans une série fait perdre son propriétaire.</li><li>Contre une IA, appuie sur « Terminer mon tour » et garde le téléphone. À deux humains, appuie sur « Terminer et masquer », puis donne le téléphone au joueur indiqué. Il appuie une seule fois sur le bouton à son prénom pour afficher son plateau.</li></ol>
     ${session && tokenTotal(session.game.geometryVersion) === 5 ? '<p>Ta partie déjà commencée conserve une seule série de cinq jetons et une seule entrée. Pour cette partie, fais sortir les cinq jetons de 1 à 5 pour gagner.</p>' : ''}
-    <p>Choisis ton set pendant la préparation : <strong>Référence</strong> conserve le réglage habituel. <strong>Miroir 50</strong> utilise des roues symétriques et 50 positions sélectionnées. Le départ est tiré au sort ; une revanche propose son complément avec l’autre joueur qui commence. Les règles et les commandes restent les mêmes.</p>
-    <p>Les nouvelles parties proposent « Repères d’origine — estimés » : les roues retrouvent une position reconstituée d’après les flèches du jeu photographié. Ce départ reste une estimation et ne garantit pas l’équilibre des faces. Tu peux choisir « Ancien départ Cascado » pendant la préparation.</p><p>Pose le doigt sur une roue, maintiens-le et fais-le glisser autour de son centre pour la tourner. La roue suit ton mouvement, dans les deux sens, avec une légère aimantation près des alignements. Continue ton geste pour dépasser un alignement. Relâche pour t’arrêter ; garder le doigt immobile ne fait pas tourner. Si tu touches le moyeu, éloigne d’abord le doigt du centre puis poursuis ton geste. Au clavier, sélectionne une roue avec Entrée ou Espace, puis utilise les flèches gauche et droite pour avancer par crans assistés de 6° au maximum.</p><p>Pour faire tomber un jeton, aligne assez largement son ouverture avec une encoche libre de la roue du dessous. Un simple contact des bords ne suffit plus. Si la réception est fermée, prépare cette roue lors d’un autre tour. Les petits repères fixes indiquent les passages.</p><p>En bas du plateau, les jetons déjà arrivés de l’autre joueur apparaissent en transparence, avec son compteur. Ses jetons encore en jeu restent sur sa propre face.</p><p>Le bouton haut-parleur en haut du plateau active ou coupe les sons. Un clic confirme leur réactivation. La rotation produit un petit cliquetis feutré, façon coffre-fort : plus tu tournes vite, plus les sons se rapprochent ; ils s’arrêtent avec ton geste. Le clic net signale seulement un passage suffisamment ouvert entre deux roues de ta face pendant ton tour ; une seule encoche devant un conduit ne suffit pas. Il accompagne aussi un halo et, si disponible, une brève vibration. Tu entends aussi les chutes adverses, même sur la face cachée, avec un bruit générique. Une courte mélodie accompagne la victoire ou la défaite seulement quand le résultat est dévoilé. Si aucun son ne sort, ouvre « Son : aide et test » dans les options pour le relancer et le tester. Sur les anciens iPhone, désactive aussi le mode silencieux et monte le volume multimédia. Full et les simulations sans plateau restent silencieux.</p><p>Choisis Humain ou IA pour chaque joueur au début de la partie. Les IA ont trois niveaux : Facile, Normal et Difficile. Elles jouent sur cet appareil et ne voient que leur propre face. Contre une IA, ton plateau reste affiché : regarde les roues tourner pendant son tour, puis reprends la main directement. Pour regarder deux IA jouer, choisis IA pour chacun des joueurs dans « Nouvelle partie », puis leurs niveaux. Le résultat est annoncé au passage normal de tour, même si la partie est déjà décidée.</p><p class="muted">Convention de cette adaptation : les sorties simultanées doivent former les prochains numéros consécutifs de chacune des séries concernées. Si des fins simultanées désignent des gagnants différents, la partie est nulle. Le calage des roues est estimé à partir de la vidéo du jeu original ; il ne constitue pas une reproduction exacte.</p>
+    <p>Choisis ton set dans <strong>Options</strong> : <strong>Référence</strong> conserve le réglage habituel. <strong>Miroir 50</strong> utilise des roues symétriques et 50 positions sélectionnées. Le départ est tiré au sort ; une revanche propose son complément avec l’autre joueur qui commence. Les règles et les commandes restent les mêmes.</p>
+    <p>Les nouvelles parties proposent « Repères d’origine — estimés » : les roues retrouvent une position reconstituée d’après les flèches du jeu photographié. Ce départ reste une estimation et ne garantit pas l’équilibre des faces. Tu peux choisir « Ancien départ Cascado » dans les options.</p><p>Pose le doigt sur une roue, maintiens-le et fais-le glisser autour de son centre pour la tourner. La roue suit ton mouvement, dans les deux sens, avec une légère aimantation près des alignements. Continue ton geste pour dépasser un alignement. Relâche pour t’arrêter ; garder le doigt immobile ne fait pas tourner. Si tu touches le moyeu, éloigne d’abord le doigt du centre puis poursuis ton geste. Au clavier, sélectionne une roue avec Entrée ou Espace, puis utilise les flèches gauche et droite pour avancer par crans assistés de 6° au maximum.</p><p>Pour faire tomber un jeton, aligne assez largement son ouverture avec une encoche libre de la roue du dessous. Un simple contact des bords ne suffit plus. Si la réception est fermée, prépare cette roue lors d’un autre tour. Les petits repères fixes indiquent les passages.</p><p>En bas du plateau, les jetons déjà arrivés de l’autre joueur apparaissent en transparence, avec son compteur. Ses jetons encore en jeu restent sur sa propre face.</p><p>Le bouton haut-parleur en haut du plateau active ou coupe les sons. Un clic confirme leur réactivation. La rotation produit un petit cliquetis feutré, façon coffre-fort : plus tu tournes vite, plus les sons se rapprochent ; ils s’arrêtent avec ton geste. Le clic net signale seulement un passage suffisamment ouvert entre deux roues de ta face pendant ton tour ; une seule encoche devant un conduit ne suffit pas. Il accompagne aussi un halo et, si disponible, une brève vibration. Tu entends aussi les chutes adverses, même sur la face cachée, avec un bruit générique. Une courte mélodie accompagne la victoire ou la défaite seulement quand le résultat est dévoilé. Si aucun son ne sort, ouvre « Son : aide et test » dans les options pour le relancer et le tester. Sur les anciens iPhone, désactive aussi le mode silencieux et monte le volume multimédia. Full et les simulations sans plateau restent silencieux.</p><p>Choisis Humain ou IA pour chaque joueur au début de la partie. Pour un humain, reprends un nom enregistré sur cet appareil ou crée-en un nouveau. Pour une IA, choisis seulement son niveau : Facile, Normal ou Difficile. Les IA jouent sur cet appareil et ne voient que leur propre face. Contre une IA, ton plateau reste affiché : regarde les roues tourner pendant son tour, puis reprends la main directement. Pour regarder deux IA jouer, choisis IA pour chacun des joueurs dans « Nouvelle partie », puis leurs niveaux. Le résultat est annoncé au passage normal de tour, même si la partie est déjà décidée.</p><p class="muted">Convention de cette adaptation : les sorties simultanées doivent former les prochains numéros consécutifs de chacune des séries concernées. Si des fins simultanées désignent des gagnants différents, la partie est nulle. Le calage des roues est estimé à partir de la vidéo du jeu original ; il ne constitue pas une reproduction exacte.</p>
     <button class="primary" data-action="home">J’ai compris</button></section>`;
   const preview = app.querySelector('[data-rules-preview]');
   if(preview) preview.rulesPreviewCleanup = setupRulesPreview(preview);
@@ -1376,6 +1436,12 @@ async function boot() {
     const upgraded=session&&upgradeGameGeometry(session.game);
     if(session) app.dataset.geometryVersion = session.game.geometryVersion;
     const identified=session&&await ensureLegacyStatisticsIdentity(session.game);
+    humanRoster = mergeHumanNames(humanRoster, session?.game.players.filter(p => playerSettings(p).controller === 'human').map(p => p.name) ?? []);
+    try {
+      const statistics = await loadStatistics();
+      humanRoster = mergeHumanNames(humanRoster, statistics.profiles.filter(profile => profile.controller === 'human').map(profile => profile.name));
+    } catch { /* Recovering optional saved names must not prevent playing. */ }
+    humanRoster = rememberHumanNames(humanRoster, [null, null]);
     if(session)renderMask();else renderHome();
     if(upgraded||identified)await persist({type:upgraded?'geometry-upgrade':'statistics-identity',from:previousGeometry,to:session.game.geometryVersion});
     setupPWA();

@@ -1,8 +1,26 @@
 # Cascado — Spécifications de la PWA
 
-Version 1.43 · 2 novembre 2026 · Langue du produit : français
+Version 1.47 · 4 novembre 2026 · Langue du produit : français
 
 Statut : V1 développée à la demande de l’utilisateur le 28 octobre 2026. La version 1.23 retient **ddc-v1.5** pour les nouvelles parties : décalages estimés de la vidéo vers 298–299 s, deux entrées et deux séries de 1 à 5 sur chaque face. Ce gabarit ne prétend ni reproduire exactement le jeu filmé ni garantir l’équivalence des faces. Le seuil de passage reste de 20 unités libres sur 28. Les parties et séries déjà enregistrées en **ddc-v1.4** ou **ddc-v1.3** gardent leur calage, leur entrée unique et leurs cinq jetons. La version **1.28** rétablit les sons, ajoute un clic de cran à l’aimantation, renforce celle-ci et élargit la saisie autour des roues sans changer les règles de passage. Le glisser circulaire et l’alternative clavier sont conservés. Les preuves exécutées et essais restant à effectuer sont consignés dans la [fiche de recette](RECETTE-V1.md).
+
+### Glissement des jetons adverses — version 1.47
+
+Quand une rotation fait tomber un jeton de la face cachée, le signal adverse reprend le fichier local de glissement `slide.wav`. Il est lu à 90 % de sa vitesse normale, avec le même gain que le glissement de la face affichée. Le signal est ainsi un peu plus grave et plus long. Il dispose de son propre canal, indépendant des glissements et impacts de la face affichée. Le signal est identique pour toutes les chutes adverses et ne reçoit aucun numéro, trajet, roue ou verdict caché.
+
+À la limite de cinq voix simultanées, un signal de chute adverse ou un impact visible peut remplacer un bruit de rotation, un glissement visible ou un clic. Les clics d’alignement ne coupent ni les impacts visibles ni les signaux de chute adverse. Les mélodies de résultat restent protégées. Si les effets prioritaires occupent toutes les voix disponibles, un nouveau signal de chute remplace de préférence un son de son propre canal. Le délai de 80 ms par canal borne la fréquence des signaux de chute, sans file d’attente ni lecture différée.
+
+Les autres comportements restent identiques : toutes les chutes adverses (entrée, passage entre roues et collecte) autorisent seulement un signal anonyme ; les alignements adverses restent silencieux. Sourdine, masque, arrière-plan, simulations sans plateau et vitesse Full des tours IA restent silencieux. Le choix de vitesse Full n’empêche pas les sons du joueur humain pendant son propre tour.
+
+### Rotation guidée — version 1.47
+
+Le guidage au doigt remplace les petits champs magnétiques statiques par des positions utiles de la **face affichée**. Le centre du trou se cale exactement sur l’axe du conduit fixe, même si la roue voisine est légèrement décentrée. Deux cibles proches ne sont jamais moyennées : seules des cibles ayant le même axe peuvent partager un arrêt. Les angles des roues voisines sont figés au début du geste. Leurs ouvertures réelles déterminent les cibles de passage commun ; lorsqu’une roue voisine est fermée, seule une cible de préparation est proposée. Les entrées et la sortie restent des cibles géométriques. Aucun jeton, résultat, identité ou état de face adverse ne détermine les cibles.
+
+La zone d’attraction atteint 14° et le plateau exact 5° de part et d’autre, réduits lorsque des cibles distinctes sont proches. Les préparations proches ne réduisent pas inutilement le champ d’un passage ouvert prioritaire. Le mouvement du doigt continue de s’accumuler pendant le calage ; poursuivre ou inverser permet de quitter le cran. Au relâchement, après un vrai mouvement seulement, le trou rejoint le centre le plus proche dans la zone de capture, y compris après un léger dépassement. Une fois sorti de cette zone, il ne revient pas au passage précédent. Prendre une roue déjà décentrée pour l’éloigner de son arrêt ne déclenche pas de retour automatique vers celui-ci. Un simple appui, une annulation, une interruption ou un second doigt ne déclenchent pas ce calage final.
+
+Les repères de passage deviennent dorés lorsque la roue est exactement calée. Les deux repères sont accentués pour un passage commun, seulement celui de la roue choisie pour une préparation. Le libellé « calée » disparaît dès la sortie du plateau. Le clic, le halo et la vibration restent déclenchés séparément par l’ouverture réelle d’un passage sur sa propre face ; une réception encore fermée ne les déclenche pas. Un récepteur occupé ne garantit pas une chute.
+
+Le moteur rejoue tous les angles réellement parcourus, y compris les tours complets et les changements de sens. Le module de guidage est précaché pour le jeu hors ligne.
 
 ### Niveau Expert — version 1.43
 

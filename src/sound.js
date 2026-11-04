@@ -18,6 +18,7 @@ const SETTINGS = {
   detent: { interval: 140, gain: 1, rate: 0.82 },
   slide: { interval: 80, gain: 0.55 },
   drop: { interval: 80, gain: 0.85 },
+  opponentFall: { interval: 80, gain: 0.55, rate: 0.9 },
   victory: { interval: 0, gain: 0.75 },
   defeat: { interval: 0, gain: 0.7 },
 };
@@ -182,11 +183,12 @@ export function createSoundPlayer(options = {}) {
     }
   }
 
-  function play(kind) {
+  function play(kind, channel = kind) {
     if (!enabled || !unlocked || context?.state !== 'running' || !buffers.has(kind)) return false;
     const time = now();
-    const settings = SETTINGS[kind];
-    if (time - (lastPlayed.get(kind) ?? -Infinity) < settings.interval) return false;
+    const settings = channel === 'opponent-fall' ? SETTINGS.opponentFall : SETTINGS[kind];
+    const isFall = channel === 'drop' || channel === 'opponent-fall';
+    if (time - (lastPlayed.get(channel) ?? -Infinity) < settings.interval) return false;
     // Leave a short gap after the stronger alignment click, too.
     if (kind === 'wheel' && time - (lastPlayed.get('detent') ?? -Infinity) < SETTINGS.detent.interval) return false;
     if (isResult(kind)) {
@@ -201,11 +203,15 @@ export function createSoundPlayer(options = {}) {
     }
     // A press may cross several gates, but sound never accumulates in a queue.
     if (active.size >= 5) {
-      if (kind !== 'detent' && !isResult(kind)) return false;
-      // Alignments and announced results take priority over motion, while an
-      // already playing result is protected from ordinary game feedback.
+      if (!isFall && kind !== 'detent' && !isResult(kind)) return false;
+      // Falls have priority over routine effects, including the hidden fall
+      // that shares the slide recording. Keep both fall channels and melodies
+      // protected from passage clicks.
       const voice = [...active].find(item => item.kind === 'wheel')
-        ?? [...active].find(item => !isResult(item.kind));
+        ?? [...active].find(item => item.channel === 'slide')
+        ?? [...active].find(item => item.kind === 'detent')
+        ?? (isFall ? [...active].find(item => item.channel === channel) : null)
+        ?? (isFall || isResult(kind) ? [...active].find(item => !isResult(item.kind)) : null);
       if (!voice) return false;
       voice.source.onended = null;
       try { voice.source.stop(); voice.source.disconnect(); voice.filter?.disconnect(); voice.gain.disconnect(); } catch { /* Optional audio. */ }
@@ -220,7 +226,7 @@ export function createSoundPlayer(options = {}) {
       gain.gain.value = settings.gain;
       source.connect(gain);
       gain.connect(master);
-      voice = { source, gain, kind };
+      voice = { source, gain, kind, channel };
       source.onended = () => {
         active.delete(voice);
         source.disconnect();
@@ -228,7 +234,7 @@ export function createSoundPlayer(options = {}) {
       };
       active.add(voice);
       source.start();
-      lastPlayed.set(kind, time);
+      lastPlayed.set(channel, time);
       return true;
     } catch {
       if (voice) {
@@ -288,6 +294,9 @@ export function createSoundPlayer(options = {}) {
     detent() { rotationTravel = 0; play('detent'); },
     slide() { play('slide'); },
     drop() { play('drop'); },
+    // A lower-pitched glide distinguishes the hidden face, with its own
+    // debounce. No token, count, position or result is supplied.
+    opponentFall() { return play('slide', 'opponent-fall'); },
     result(kind) { return isResult(kind) ? play(kind) : false; },
     stop() { unlocked = false; stop(); },
   };

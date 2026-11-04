@@ -273,6 +273,9 @@ html.game-viewport-locked #app > .play { position: absolute; }
 .magnet-feedback { pointer-events: none; }
 .magnet-feedback-ring { fill: none; stroke: #8fe2bf; stroke-width: 4.5; opacity: 1; }
 .magnet-feedback-hub { fill: #8fe2bf; fill-opacity: .26; stroke: #caffdf; stroke-width: 2.4; }
+.passage-marker[data-guide-target] { opacity: 1; filter: drop-shadow(0 0 2px #f5c86e); }
+.passage-marker[data-guide-target] > path:last-of-type { stroke: #ffd484; stroke-width: 3.8; }
+.play[data-guide-state="paired"] .passage-marker[data-guide-target] > path:last-of-type { stroke-width: 4.8; }
 .play .wheel-status {
   position: absolute;
   bottom: calc(54px + var(--safe-bottom)); left: var(--edge); right: var(--edge);

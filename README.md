@@ -1,5 +1,7 @@
 # Cascado — V1
 
+La version **1.47** guide la rotation au doigt vers les passages de la face affichée. Le centre de l’encoche se cale dans l’axe du passage, avec un repère doré. Les passages ouverts sont prioritaires. Continuer le geste permet de dépasser le repère, et relâcher la roue à proximité termine le centrage. Le glissement des jetons adverses a un timbre légèrement plus grave et reste audible lors d’une chute simultanée sur la face affichée.
+
 La version **1.43** ajoute le niveau **Expert**. Il adapte sa recherche au set : Référence utilise cinq coups propres, six candidats initiaux et trois pistes suivantes ; Miroir 50 privilégie trois coups propres, douze candidats initiaux et six pistes suivantes. Il conserve les heuristiques de priorité aux prochains numéros des deux séries, de réception libre et de préparation des passages. Les niveaux précédents gardent exactement leur stratégie et aucune information adverse supplémentaire n’est fournie.
 
 La version **1.42** ajoute une petite **croix** à côté du prénom humain sélectionné pour le retirer de la liste mémorisée. La suppression est immédiate, sans confirmation, et persiste après rechargement ; elle ne change ni les statistiques ni la partie enregistrée. Le prénom peut être recréé volontairement.
@@ -8,7 +10,7 @@ La version **1.41** place le **Set de jeu** et la **Position des roues au dépar
 
 La version **1.40** retire l’entrée « Duel automatique » de l’accueil et regroupe Statistiques, Partager, Installer et l’aide au son dans « Options ». Pour observer une partie entre deux IA, choisir IA pour les deux joueurs dans « Nouvelle partie ». Les règles proposent un aperçu lent en 3D des deux faces, avec pause et changement de face ; la préférence de réduction des animations est respectée. Les séries déjà sauvegardées et les outils de simulation restent disponibles.
 
-Version documentaire 1.43 · 2 novembre 2026
+Version documentaire 1.47 · 4 novembre 2026
 
 [Jouer à Cascado](https://hesge.github.io/Cascado/) · [Code source sur GitHub](https://github.com/HESGE/Cascado)
 
@@ -97,7 +99,7 @@ Face à une IA, la face humaine reste affichée et conserve la même orientation
 
 Le réglage **Vitesse des IA** propose **Lent**, **Normal**, **Rapide** et **Full**, dès la préparation et pendant une partie avec plateau comportant une IA. Il agit sur les deux IA et se modifie aussi au milieu d’une rotation ou d’une chute : Lent joue à la moitié du rythme Normal, Rapide au double, et Full retire les délais de présentation et les animations de rotation pour aller au plus vite. Full conserve tous les passages mécaniques et laisse la commande de pause disponible. Changer de vitesse ne relance ni la réflexion, ni le mouvement, ni le tour ; une chute en cours conserve sa position. La vitesse ne change pas le niveau Facile, Normal, Difficile ou Expert, ni les gestes humains. Ce choix est conservé sur cet appareil après rechargement et pour les nouvelles parties ; Normal est utilisé par défaut.
 
-L’aimant attire la roue à moins de **5°** d’un alignement, avec une correction inférieure à **1,5°** et un petit plateau exact de demi-largeur maximale **1°**. Le champ et ce plateau sont réduits près des alignements voisins pour ne pas se chevaucher. Il ne verrouille pas la roue : continuer le geste permet de le traverser. Ses positions sont fixes, communes aux deux faces et indépendantes des jetons ; un aimant ne garantit donc pas qu’une réception soit ouverte ou libre.
+Jusqu’à la version 1.43, l’aimant attire la roue à moins de **5°** d’un alignement, avec une correction inférieure à **1,5°** et un petit plateau exact de demi-largeur maximale **1°**. Le champ et ce plateau sont réduits près des alignements voisins pour ne pas se chevaucher. Il ne verrouille pas la roue : continuer le geste permet de le traverser. Ses positions sont fixes, communes aux deux faces et indépendantes des jetons ; un aimant ne garantit donc pas qu’une réception soit ouverte ou libre.
 
 Pendant le glisser au doigt, l’ouverture d’un passage commun d’au moins **20 unités** entre deux roues de la face affichée produit un **clic net** si le son est activé et affiche un halo vert discret autour de la roue pendant **300 ms**. Une vibration de **12 ms** l’accompagne si le navigateur la prend en charge et si la réduction des animations est désactivée. Le [support de la vibration est incomplet](https://developer.mozilla.org/en-US/docs/Web/API/Navigator/vibrate), notamment absent de Safari ; le retour visuel reste disponible. Un passage déjà ouvert au contact reste silencieux ; il faut le refermer puis le rouvrir, avec une petite hystérésis contre les tremblements et au moins **140 ms** entre deux retours. Les traversées rapides sont reconnues sur le mouvement réellement appliqué. Ce retour lit uniquement les angles de notre face, sans consulter les jetons ni un résultat caché : une réception occupée n’empêche donc pas le clic géométrique. Les entrées fixes, la sortie, un appui immobile et les crans clavier ne déclenchent pas ce retour. L’aimantation physique des deux faces reste inchangée.
 

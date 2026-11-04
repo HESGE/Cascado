@@ -16,7 +16,7 @@ import { ROTATION_STEP, rotationDetentDelta } from './detents.js';
 import { alignmentHint } from './alignment.js';
 import { createWheelGesture, advanceWheelGesture } from './gesture.js';
 import { wheelAtPoint } from './wheel-hit.js';
-import { createMagneticDrag, advanceMagneticDrag } from './magnet.js';
+import { createRotationGuide, advanceRotationGuide, finishRotationGuide } from './rotation-guide.js';
 import { createPassageFeedbackTracker, advancePassageFeedbackTracker } from './passage-feedback.js';
 import { createAlignmentFeedback } from './feedback.js';
 import { getResultSound } from './result-sound.js';
@@ -33,7 +33,8 @@ import { AI_SPEEDS, normalizeAISpeed, aiSpeedProfile, createAIWait, advanceAIWai
 
 const app = document.querySelector('#app');
 app.dataset.geometryVersion = GEOMETRY_VERSION;
-app.dataset.rotationMode = 'wheel-drag-magnet';
+app.dataset.rotationMode = 'wheel-drag-guided';
+app.dataset.rotationGuide = 'own-face-passage-centers';
 app.dataset.wheelGrab = 'expanded-16px';
 app.dataset.passageMode = 'overlap-20';
 app.dataset.alignmentFeedback = 'overlap-halo-haptic-click';
@@ -224,7 +225,7 @@ function renderHome() {
     <div class="actions">${session ? '<button class="primary" data-action="resume">Reprendre la partie</button>' : ''}<button class="${session ? 'secondary' : 'primary'}" data-action="new">Nouvelle partie</button><button class="secondary" data-action="rules">Comment jouer</button><button class="secondary" data-action="options">Options</button></div>
     <div class="install-status" id="install-status">${offlineStatus()}</div>
     ${updateAvailable ? '<button class="secondary" data-action="update">Une mise à jour est disponible</button>' : ''}
-    <p class="muted local-note">Sans compte · Partie enregistrée sur cet appareil<br><span data-release>Version 1.43</span></p></section>`;
+    <p class="muted local-note">Sans compte · Partie enregistrée sur cet appareil<br><span data-release>Version 1.47</span></p></section>`;
 }
 
 function renderOptions() {
@@ -686,6 +687,7 @@ function renderPlay(spectate = false) {
 function updatePlayUI(view = displayedView()) {
   if (!boardVisible()) return;
   const spectate = mode === 'ai-play';
+  const guidedStop = !spectate && surfacePress?.guide?.activeStop;
   const mixed = mixedGame();
   const activeName = session.game.players[session.game.active].name;
   app.querySelector('.player-title > span:last-child').textContent = mixed ? `Plateau de ${view.name}` : (spectate ? view.name : `À toi, ${view.name}`);
@@ -694,9 +696,9 @@ function updatePlayUI(view = displayedView()) {
     return `<b style="background:${color}" aria-label="${label}, ${next > 5 ? 'terminée' : `prochain jeton ${next}`}"><small aria-hidden="true">${view.totalTokens > 5 ? symbol : ''}</small>${next > 5 ? '✓' : next}</b>`;
   }).join('');
   app.querySelector('.progress').innerHTML = `<span><span class="next-label">${view.totalTokens > 5 ? 'PROCHAINS' : 'PROCHAIN JETON'}</span> <span class="series-next">${nextTokens}</span></span><span>${view.exited.length} / ${view.totalTokens} arrivés</span>`;
-  app.querySelector('#selection-label').textContent = selected ? `Roue ${selected} ${session.game.engaged ? 'engagée' : 'sélectionnée'}` : spectate ? 'L’IA réfléchit…' : 'Choisis une roue';
+  app.querySelector('#selection-label').textContent = selected ? `Roue ${selected} ${guidedStop ? 'calée' : session.game.engaged ? 'engagée' : 'sélectionnée'}` : spectate ? 'L’IA réfléchit…' : 'Choisis une roue';
   const rule = wheelRestrictionMessage(view,{watchingOpponent:view.faceIndex !== session.game.active});
-  const ruleText = rule.text || (spectate ? `IA · ${levelLabel(playerSettings(session.game.players[session.game.active]).level)}` : 'Rotation au doigt');
+  const ruleText = rule.text || (spectate ? `IA · ${levelLabel(playerSettings(session.game.players[session.game.active]).level)}` : 'Rotation guidée');
   const ruleLabel = app.querySelector('#restriction-label');
   if(ruleLabel.textContent !== ruleText) ruleLabel.textContent = ruleText;
   const ruleStatus = app.querySelector('.wheel-status');
@@ -715,8 +717,9 @@ function updatePlayUI(view = displayedView()) {
   readout.setAttribute('aria-label',spectate ? 'Rotation jouée par l’IA' : 'Rotation de la roue sélectionnée, flèches gauche et droite');
   const angle = selected ? Math.round(view.angles[selected-1]) % 360 : 0;
   readout.setAttribute('aria-valuenow',String(angle));
-  readout.setAttribute('aria-valuetext', spectate ? (selected ? `Roue ${selected}, ${angle} degrés.` : 'L’IA prépare son mouvement.') : selected ? `Roue ${selected}, ${angle} degrés. Flèche droite : sens horaire ; flèche gauche : sens antihoraire.` : 'Sélectionne une roue pour tourner.');
-  readout.textContent = spectate ? (mixed ? `Tour de l’IA · ${activeName}` : `Tour ${session.game.turn} · ${activeName}`) : mixed ? 'À toi de jouer' : 'Tourne avec le doigt';
+  readout.setAttribute('aria-valuetext', spectate ? (selected ? `Roue ${selected}, ${angle} degrés.` : 'L’IA prépare son mouvement.') : selected ? `Roue ${selected}, ${angle} degrés.${guidedStop ? ' Position calée.' : ''} Flèche droite : sens horaire ; flèche gauche : sens antihoraire.` : 'Sélectionne une roue pour tourner.');
+  readout.textContent = spectate ? (mixed ? `Tour de l’IA · ${activeName}` : `Tour ${session.game.turn} · ${activeName}`) : guidedStop ? 'Calée · poursuis pour continuer' : mixed ? 'À toi de jouer' : 'Tourne · les passages te guident';
+  paintRotationGuide();
   syncSpeedPanel();
 }
 
@@ -752,7 +755,7 @@ function soundOpponentFalls(newBatches, viewerFaceIndex) {
   if (!boardVisible() || document.hidden || (mode === 'ai-play' && aiSpeedProfile(aiSpeed).full)) return;
   // Only the presence of a new opponent cascade reaches audio. Its paths,
   // token numbers and verdict never enter the displayed animation or timers.
-  if (hasOpponentFall(newBatches, viewerFaceIndex)) sound.drop();
+  if (hasOpponentFall(newBatches, viewerFaceIndex)) sound.opponentFall();
 }
 
 function paintAlignmentFeedback() {
@@ -770,7 +773,17 @@ function paintAlignmentFeedback() {
   target.append(halo);
 }
 
-function applyRotations(localDeltas, directRotation = false, magneticDrag = null, passageTracker = null) {
+function paintRotationGuide() {
+  app.querySelectorAll('[data-guide-target]').forEach(node => node.removeAttribute('data-guide-target'));
+  const surface = app.querySelector('.play');
+  if(!surface) return;
+  const stop = mode === 'play' && surfacePress?.kind === 'pointer' ? surfacePress.guide?.activeStop : null;
+  surface.dataset.guideState = stop?.kind ?? 'free';
+  if(!stop) return;
+  for(const port of stop.portIds) app.querySelector(`[data-port="${port}"]`)?.setAttribute('data-guide-target', stop.kind);
+}
+
+function applyRotations(localDeltas, directRotation = false, rotationGuide = null, passageTracker = null) {
   if (mode !== 'play' || !selected) return false;
   const before = getView(session.game,session.game.active);
   const firstNewEvent=session.game.events.length;
@@ -780,17 +793,17 @@ function applyRotations(localDeltas, directRotation = false, magneticDrag = null
     if(!Number.isFinite(localDelta)||!localDelta)continue;
     const physical=localDelta*(session.game.active===0?1:-1);
     const delta=directRotation
-      ? (magneticDrag?advanceMagneticDrag(magneticDrag,physical):physical)
+      ? (rotationGuide?advanceRotationGuide(rotationGuide,physical):physical)
       : rotationDetentDelta(selected,session.game.angles[selected-1],Math.sign(physical),session.game.geometryVersion);
     if(rotate(session.game,selected,delta)) {
       steps.push(delta);
       // Feedback follows actual displayed movement and the common opening of
-      // two own-face wheels, independently of the shared mechanical magnets.
+      // two own-face wheels. A preparation stop alone never produces a click.
       if(directRotation && passageTracker
         && advancePassageFeedbackTracker(passageTracker,delta*(session.game.active===0?1:-1))>0) passageOpened=true;
     }
   }
-  if(!steps.length)return false;
+  if(!steps.length){if(rotationGuide)updatePlayUI();return false;}
   const newBatches=session.game.events.slice(firstNewEvent);
   const transfers=visibleTransfers(newBatches,session.game.active);
   if (!passageOpened) sound.turn(steps.reduce((sum,delta)=>sum+Math.abs(delta),0));
@@ -856,7 +869,7 @@ function flushWheelGesture(press=surfacePress) {
   if(press?.kind!=='pointer'||mode!=='play')return;
   press.frame=0;
   const deltas=press.deltas.splice(0);
-  if(deltas.length)applyRotations(deltas,true,press.magnet,press.passageFeedback);
+  if(deltas.length)applyRotations(deltas,true,press.guide,press.passageFeedback);
 }
 
 function queueWheelGesture(event) {
@@ -878,7 +891,11 @@ function finishSurfacePress(source = null, commit = false) {
   if(!commit)alignmentFeedback.stop();
   if(previous.frame)cancelAnimationFrame(previous.frame);
   if(commit&&mode==='play'){
-    if(previous.kind==='pointer')flushWheelGesture(previous);
+    if(previous.kind==='pointer') {
+      flushWheelGesture(previous);
+      const seating = finishRotationGuide(previous.guide);
+      if(seating)applyRotations([seating*(session.game.active===0?1:-1)],true,null,previous.passageFeedback);
+    }
     else if(!previous.held)applyRotation(previous.direction*ROTATION_STEP);
   }
   sound.resetTurn();
@@ -920,7 +937,7 @@ app.addEventListener('pointerdown',event=>{
   if(!center)return;
   sound.resetTurn();
   surfacePress={kind:'pointer',source:event.pointerId,frame:0,deltas:[],
-    magnet:createMagneticDrag(selected,session.game.angles[selected-1],session.game.geometryVersion,session.game.active),
+    guide:createRotationGuide(getView(session.game,session.game.active),selected),
     passageFeedback:createPassageFeedbackTracker(getView(session.game,session.game.active),selected),
     gesture:createWheelGesture({x:center.x,y:center.y},{x:event.clientX,y:event.clientY})};
   app.setPointerCapture(event.pointerId);
@@ -1247,7 +1264,7 @@ function renderRules() {
     <ol><li>Chacun possède dix jetons : une série de 1 à 5 à gauche et une autre à droite, distinguées par leur couleur et leur symbole.</li><li>À ton tour, choisis une roue et tourne-la lentement. Les deux faces bougent ensemble.</li><li>Tu peux t’arrêter, reprendre et changer de sens sur cette même roue.</li><li>La dernière roue jouée par l’adversaire est interdite. Exception : ton dernier jeton est encore dans la roue 5.</li><li>Pour gagner, sors les dix jetons en respectant l’ordre de 1 à 5 dans chaque série. Tu peux alterner les deux séries. Une sortie hors ordre dans une série fait perdre son propriétaire.</li><li>Contre une IA, appuie sur « Terminer mon tour » et garde le téléphone. À deux humains, appuie sur « Terminer et masquer », puis donne le téléphone au joueur indiqué. Il appuie une seule fois sur le bouton à son prénom pour afficher son plateau.</li></ol>
     ${session && tokenTotal(session.game.geometryVersion) === 5 ? '<p>Ta partie déjà commencée conserve une seule série de cinq jetons et une seule entrée. Pour cette partie, fais sortir les cinq jetons de 1 à 5 pour gagner.</p>' : ''}
     <p>Choisis ton set dans <strong>Options</strong> : <strong>Référence</strong> conserve le réglage habituel. <strong>Miroir 50</strong> utilise des roues symétriques et 50 positions sélectionnées. Le départ est tiré au sort ; une revanche propose son complément avec l’autre joueur qui commence. Les règles et les commandes restent les mêmes.</p>
-    <p>Les nouvelles parties proposent « Repères d’origine — estimés » : les roues retrouvent une position reconstituée d’après les flèches du jeu photographié. Ce départ reste une estimation et ne garantit pas l’équilibre des faces. Tu peux choisir « Ancien départ Cascado » dans les options.</p><p>Pose le doigt sur une roue, maintiens-le et fais-le glisser autour de son centre pour la tourner. La roue suit ton mouvement, dans les deux sens, avec une légère aimantation près des alignements. Continue ton geste pour dépasser un alignement. Relâche pour t’arrêter ; garder le doigt immobile ne fait pas tourner. Si tu touches le moyeu, éloigne d’abord le doigt du centre puis poursuis ton geste. Au clavier, sélectionne une roue avec Entrée ou Espace, puis utilise les flèches gauche et droite pour avancer par crans assistés de 6° au maximum.</p><p>Pour faire tomber un jeton, aligne assez largement son ouverture avec une encoche libre de la roue du dessous. Un simple contact des bords ne suffit plus. Si la réception est fermée, prépare cette roue lors d’un autre tour. Les petits repères fixes indiquent les passages.</p><p>En bas du plateau, les jetons déjà arrivés de l’autre joueur apparaissent en transparence, avec son compteur. Ses jetons encore en jeu restent sur sa propre face.</p><p>Le bouton haut-parleur en haut du plateau active ou coupe les sons. Un clic confirme leur réactivation. La rotation produit un petit cliquetis feutré, façon coffre-fort : plus tu tournes vite, plus les sons se rapprochent ; ils s’arrêtent avec ton geste. Le clic net signale seulement un passage suffisamment ouvert entre deux roues de ta face pendant ton tour ; une seule encoche devant un conduit ne suffit pas. Il accompagne aussi un halo et, si disponible, une brève vibration. Tu entends aussi les chutes adverses, même sur la face cachée, avec un bruit générique. Une courte mélodie accompagne la victoire ou la défaite seulement quand le résultat est dévoilé. Si aucun son ne sort, ouvre « Son : aide et test » dans les options pour le relancer et le tester. Sur les anciens iPhone, désactive aussi le mode silencieux et monte le volume multimédia. Full et les simulations sans plateau restent silencieux.</p><p>Choisis Humain ou IA pour chaque joueur au début de la partie. Pour un humain, reprends un nom enregistré sur cet appareil ou crée-en un nouveau. Pour une IA, choisis seulement son niveau : Facile, Normal, Difficile ou Expert. Expert adapte sa recherche au set : il prépare les réceptions, compare les parcours possibles et donne la priorité aux prochains numéros de ses deux séries. Il utilise toujours uniquement sa propre face. Les IA jouent sur cet appareil et ne voient que leur propre face. Contre une IA, ton plateau reste affiché : regarde les roues tourner pendant son tour, puis reprends la main directement. Pour regarder deux IA jouer, choisis IA pour chacun des joueurs dans « Nouvelle partie », puis leurs niveaux. Le résultat est annoncé au passage normal de tour, même si la partie est déjà décidée.</p><p class="muted">Convention de cette adaptation : les sorties simultanées doivent former les prochains numéros consécutifs de chacune des séries concernées. Si des fins simultanées désignent des gagnants différents, la partie est nulle. Le calage des roues est estimé à partir de la vidéo du jeu original ; il ne constitue pas une reproduction exacte.</p>
+    <p>Les nouvelles parties proposent « Repères d’origine — estimés » : les roues retrouvent une position reconstituée d’après les flèches du jeu photographié. Ce départ reste une estimation et ne garantit pas l’équilibre des faces. Tu peux choisir « Ancien départ Cascado » dans les options.</p><p>Pose le doigt sur une roue, maintiens-le et fais-le glisser autour de son centre pour la tourner. La roue suit ton mouvement, dans les deux sens, avec un guidage vers les passages de ta face. Approche une position utile : la roue se cale et le repère devient doré. Poursuis ton geste pour dépasser ce cran et atteindre le suivant. Relâche pour t’arrêter ; garder le doigt immobile ne fait pas tourner. Si tu touches le moyeu, éloigne d’abord le doigt du centre puis poursuis ton geste. Au clavier, sélectionne une roue avec Entrée ou Espace, puis utilise les flèches gauche et droite pour avancer par crans assistés de 6° au maximum.</p><p>Pour faire tomber un jeton, aligne assez largement son ouverture avec une encoche libre de la roue du dessous. Un simple contact des bords ne suffit plus. Si la réception est fermée, prépare cette roue lors d’un autre tour. Les petits repères fixes indiquent les passages.</p><p>En bas du plateau, les jetons déjà arrivés de l’autre joueur apparaissent en transparence, avec son compteur. Ses jetons encore en jeu restent sur sa propre face.</p><p>Le bouton haut-parleur en haut du plateau active ou coupe les sons. Un clic confirme leur réactivation. La rotation produit un petit cliquetis feutré, façon coffre-fort : plus tu tournes vite, plus les sons se rapprochent ; ils s’arrêtent avec ton geste. Le clic net signale seulement un passage suffisamment ouvert entre deux roues de ta face pendant ton tour ; une seule encoche devant un conduit ne suffit pas. Il accompagne aussi un halo et, si disponible, une brève vibration. Tu entends aussi les chutes adverses, même sur la face cachée, avec un bruit générique. Une courte mélodie accompagne la victoire ou la défaite seulement quand le résultat est dévoilé. Si aucun son ne sort, ouvre « Son : aide et test » dans les options pour le relancer et le tester. Sur les anciens iPhone, désactive aussi le mode silencieux et monte le volume multimédia. Full et les simulations sans plateau restent silencieux.</p><p>Choisis Humain ou IA pour chaque joueur au début de la partie. Pour un humain, reprends un nom enregistré sur cet appareil ou crée-en un nouveau. Pour une IA, choisis seulement son niveau : Facile, Normal, Difficile ou Expert. Expert adapte sa recherche au set : il prépare les réceptions, compare les parcours possibles et donne la priorité aux prochains numéros de ses deux séries. Il utilise toujours uniquement sa propre face. Les IA jouent sur cet appareil et ne voient que leur propre face. Contre une IA, ton plateau reste affiché : regarde les roues tourner pendant son tour, puis reprends la main directement. Pour regarder deux IA jouer, choisis IA pour chacun des joueurs dans « Nouvelle partie », puis leurs niveaux. Le résultat est annoncé au passage normal de tour, même si la partie est déjà décidée.</p><p class="muted">Convention de cette adaptation : les sorties simultanées doivent former les prochains numéros consécutifs de chacune des séries concernées. Si des fins simultanées désignent des gagnants différents, la partie est nulle. Le calage des roues est estimé à partir de la vidéo du jeu original ; il ne constitue pas une reproduction exacte.</p>
     <button class="primary" data-action="home">J’ai compris</button></section>`;
   const preview = app.querySelector('[data-rules-preview]');
   if(preview) preview.rulesPreviewCleanup = setupRulesPreview(preview);

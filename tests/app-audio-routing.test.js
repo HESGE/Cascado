@@ -6,8 +6,8 @@ import { createGame, rotate, getView, allowedWheels } from '../src/engine.js';
 import { renderBoard, wheelCenter } from '../src/board.js';
 import { visibleTransfers, hasOpponentFall } from '../src/flow.js';
 import { getOpponentProgress } from '../src/opponent-progress.js';
-import { physicalAngleFor, gates, angularDistance, OUTPUT_GATE } from '../src/geometry.js';
-import { createMagneticDrag, advanceMagneticDrag } from '../src/magnet.js';
+import { physicalAngleFor, gates, angularDistance, OUTPUT_GATE, inputGates } from '../src/geometry.js';
+import { createRotationGuide, advanceRotationGuide, finishRotationGuide } from '../src/rotation-guide.js';
 import { createWheelGesture, advanceWheelGesture } from '../src/gesture.js';
 import { wheelAtPoint } from '../src/wheel-hit.js';
 import { ROTATION_STEP, rotationDetentDelta } from '../src/detents.js';
@@ -27,7 +27,7 @@ function between(start, end) {
 
 // Run the app's real routing and captured event handlers in Node. Only browser
 // surfaces, audio output and persistence are replaced; gestures, geometry,
-// magnets, passage tracking, rendering and the game engine are production code.
+// guided stops, passage tracking, rendering and the game engine are production code.
 // No browser execution, application export or production test hook is needed.
 const routing = between('const alignmentFeedback = createAlignmentFeedback({', '\nconst landscape =')
   + between('function refreshPlay(', '\nfunction cancelAITurn(')
@@ -87,7 +87,7 @@ function harness(game, options = {}) {
     releasePointerCapture(id) { captures.delete(id); },
   };
   const document = { hidden: false, addEventListener(name, callback) { documentListeners.set(name, callback); } };
-  const sound = Object.fromEntries(['turn', 'detent', 'slide', 'drop', 'unlock', 'stop', 'resetTurn'].map(name =>
+  const sound = Object.fromEntries(['turn', 'detent', 'slide', 'drop', 'opponentFall', 'unlock', 'stop', 'resetTurn'].map(name =>
     [name, (...args) => sounds.push({ name, time: now, args })]));
   const context = vm.createContext({
     app, document, sound, session: { game }, mode: options.mode ?? 'play', selected: null,
@@ -95,7 +95,7 @@ function harness(game, options = {}) {
     failed: false, aiGeneration: 0, aiDirtyGame: null, aiSpeed: options.aiSpeed ?? 'normal',
     performance: { now: () => now },
     getView, rotate, allowedWheels, renderBoard, wheelCenter, getOpponentProgress,
-    visibleTransfers, hasOpponentFall, createMagneticDrag, advanceMagneticDrag,
+    visibleTransfers, hasOpponentFall, createRotationGuide, advanceRotationGuide, finishRotationGuide,
     createWheelGesture, advanceWheelGesture, wheelAtPoint, ROTATION_STEP, rotationDetentDelta,
     createPassageFeedbackTracker, advancePassageFeedbackTracker,
     displayedFaceIndex, playerSettings, createAIRotation, advanceAIRotation, completeAIRotation,
@@ -131,7 +131,7 @@ function harness(game, options = {}) {
     finishTurn: async () => { turnsFinished++; context.mode = 'transition'; },
   });
   vm.runInContext(routing, context, { filename: 'app-audio-routing.js' });
-  const api = vm.runInContext('({applyRotations, applyRotation, flushWheelGesture, finishSurfacePress, beginSurfaceRotation, stopMotion, runAITurn})', context);
+  const api = vm.runInContext('({applyRotations, applyRotation, flushWheelGesture, finishSurfacePress, beginSurfaceRotation, stopMotion, runAITurn, soundOpponentFalls})', context);
   const point = (wheel, degrees) => {
     const center = wheelCenter(wheel, game.active);
     const radians = degrees * Math.PI / 180;
@@ -193,6 +193,42 @@ for (const face of [0, 1]) {
     assert.ok(Math.abs(distance - 50) < 1e-8, 'both faces report positive angular travel to the sound player');
   });
 
+  test(`app face ${face}: a broad preparation stop with a closed receiver never announces an open passage`, () => {
+    const game = passageGame(face, false);
+    game.faces[face].slots[0][0] = 1;
+    const gate = gates(face).find(item => item.from === 1 && item.to === 2);
+    const h = harness(game);
+    h.down(); h.move(1, 23); h.frame(); h.up(1, 23);
+    assert.ok(angularDistance(getView(game, face).angles[0], gate.sourceAngle) < 1e-8,
+      'the guide seats the source despite a finger gesture short of its exact angle');
+    assert.equal(game.faces[face].slots[0][0], 1, 'a prepared source cannot force a closed receiver');
+    assert.equal(h.count('detent'), 0, 'a useful preparation stop is not a two-mouth passage click');
+    assert.equal(h.count('drop'), 0);
+    assert.equal(h.count('slide'), 0);
+    assert.ok(h.count('turn') > 0);
+  });
+
+  test(`app face ${face}: release completes a nearby real passage once, without loosening its width`, () => {
+    const game = passageGame(face);
+    game.faces[face].slots[0][0] = 1;
+    const gate = gates(face).find(item => item.from === 1 && item.to === 2);
+    const h = harness(game);
+    h.down(); h.move(1, 11); h.frame();
+    assert.equal(h.count('detent'), 0, 'approaching a guide outside the true opening stays quiet');
+    assert.equal(game.faces[face].slots[0][0], 1, 'the strict passage has not admitted the token yet');
+    h.up(1, 11);
+    assert.ok(angularDistance(getView(game, face).angles[0], gate.sourceAngle) < 1e-8,
+      'release completes the nearby alignment in the chosen direction');
+    assert.equal(game.faces[face].slots[0][0], null);
+    assert.equal(h.count('detent'), 1);
+    assert.equal(h.count('slide'), 1);
+    assert.equal(h.count('drop'), 1);
+    const snapshot = structuredClone(game);
+    h.up(1, 11);
+    assert.deepEqual(game, snapshot, 'a repeated release cannot replay the correction');
+    assert.equal(h.count('detent'), 1);
+  });
+
   test(`app face ${face}: rotation sound follows actual magnetic movement rather than raw finger degrees`, () => {
     const h = harness(passageGame(face, false));
     const before = getView(h.game, face).angles[0];
@@ -229,7 +265,7 @@ for (const face of [0, 1]) {
 
   test(`app face ${face}: a narrow visible overlap stays soft until the common passage admits a token`, () => {
     const h = harness(passageGame(face));
-    h.down(); h.move(1, 10); h.frame();
+    h.down(); h.move(1, 8); h.frame();
     assert.equal(h.count('detent'), 0, 'rim overlap below the 20-unit passage width is not an alignment cue');
     assert.equal(h.count('turn'), 1);
     h.move(1, 20); h.frame(); h.up(1, 20);
@@ -259,6 +295,67 @@ for (const face of [0, 1]) {
     assert.equal(h.count('detent'), 2);
   });
 
+  for (const kind of ['input', 'internal']) {
+    test(`app face ${face}: human rotation sounds a hidden opponent ${kind} fall without inventing visible motion`, () => {
+      const game = emptyGame(face), opponent = 1 - face;
+      const gate = gates(opponent).find(item => item.from === 1 && item.to === 2);
+      if (kind === 'input') {
+        game.faces[opponent].queue = [1];
+        game.angles[0] = physicalAngleFor(opponent, 1, 0,
+          inputGates(game.geometryVersion)[0] + 25, game.geometryVersion);
+      } else {
+        game.faces[opponent].slots[0][0] = 1;
+        game.angles[0] = physicalAngleFor(opponent, 1, 0, gate.sourceAngle + 25, game.geometryVersion);
+        game.angles[1] = physicalAngleFor(opponent, 2, 0, gate.targetAngle, game.geometryVersion);
+      }
+      const beforeOwn = structuredClone(game.faces[face]);
+      const h = harness(game);
+      h.down(1); h.move(1, 50); h.frame(); h.up(1, 50);
+      assert.ok(game.events.some(event => event.transfers.some(transfer => transfer.face === opponent
+        && (kind === 'input' ? transfer.from.queue && transfer.to.wheel === 1
+          : transfer.from.wheel === 1 && transfer.to.wheel === 2))));
+      assert.deepEqual(game.faces[face], beforeOwn, 'the displayed player has no falling token');
+      assert.equal(h.count('opponentFall'), 1);
+      assert.deepEqual(h.arguments('opponentFall'), [[]]);
+      assert.equal(h.count('drop'), 0);
+      assert.equal(h.count('slide'), 0);
+      assert.equal(h.count('detent'), 0, 'the opposite face opening must never produce an alignment click');
+      assert.ok(h.count('turn') > 0);
+      assert.ok(h.animations.every(animation => animation.after.faceIndex === face && animation.events.length === 0));
+    });
+  }
+
+  test(`app face ${face}: simultaneous visible and hidden collections use independent sound routes`, () => {
+    const game = emptyGame(face);
+    game.faces[0].slots[4][0] = 1;
+    game.faces[1].slots[4][0] = 1;
+    // The two faces' exits are 15 degrees apart in this mechanical profile.
+    game.angles[4] = face === 0 ? 45 : 115;
+    const h = harness(game);
+    h.down(5); h.move(5, 50); h.frame(); h.up(5, 50);
+    assert.deepEqual(game.faces.map(side => side.exited), [[1], [1]]);
+    assert.equal(h.count('drop'), 1, 'visible impact retains its normal callback');
+    assert.equal(h.count('opponentFall'), 1, 'the other impact has a separate anonymous channel');
+    assert.deepEqual(h.arguments('opponentFall'), [[]]);
+    const shown = h.animations.flatMap(animation => animation.events);
+    assert.equal(shown.length, 1, 'only the displayed collection is animated');
+    assert.deepEqual(shown, visibleTransfers(game.events, face));
+  });
+
+  test(`app face ${face}: an empty opponent alignment never invents a hidden fall or an alignment click`, () => {
+    const game = emptyGame(face), opponent = 1 - face;
+    const gate = gates(opponent).find(item => item.from === 1 && item.to === 2);
+    game.angles[0] = physicalAngleFor(opponent, 1, 0, gate.sourceAngle + 25, game.geometryVersion);
+    game.angles[1] = physicalAngleFor(opponent, 2, 0, gate.targetAngle, game.geometryVersion);
+    const h = harness(game);
+    h.down(1); h.move(1, 50); h.frame(); h.up(1, 50);
+    assert.equal(game.events.length, 0);
+    assert.equal(h.count('opponentFall'), 0);
+    assert.equal(h.count('detent'), 0);
+    assert.equal(h.count('drop'), 0);
+    assert.ok(h.count('turn') > 0);
+  });
+
   test(`app face ${face}: opponent collection remains anonymous and audible during rotation`, () => {
     const game = emptyGame(face);
     const opponent = 1 - face;
@@ -267,7 +364,9 @@ for (const face of [0, 1]) {
     const h = harness(game);
     h.down(5); h.move(5, 50); h.frame(); h.up(5, 50);
     assert.deepEqual(game.faces[opponent].exited, [1]);
-    assert.equal(h.count('drop'), 1, 'the hidden collection keeps its generic fall sound');
+    assert.equal(h.count('opponentFall'), 1, 'the hidden collection uses its independent anonymous fall channel');
+    assert.equal(h.count('drop'), 0, 'there is no visible token impact to route');
+    assert.deepEqual(h.arguments('opponentFall'), [[]], 'only presence, never a hidden token or path, reaches audio');
     assert.ok(h.animations.every(animation => animation.events.length === 0),
       'hidden transfer details never enter the displayed motion callbacks');
   });
@@ -315,9 +414,9 @@ test('app: raw movement held on a magnetic plateau is silent when the wheel does
   const h = harness(game);
   h.context.selected = 1;
   const before = [...game.angles];
-  const magnet = createMagneticDrag(1, game.angles[0], game.geometryVersion, 0);
+  const guide = createRotationGuide(getView(game, 0), 1);
   const tracker = createPassageFeedbackTracker(getView(game, 0), 1);
-  assert.equal(h.api.applyRotations([.1], true, magnet, tracker), false);
+  assert.equal(h.api.applyRotations([.1], true, guide, tracker), false);
   assert.deepEqual(game.angles, before);
   assert.equal(h.count('turn'), 0);
   assert.equal(h.count('detent'), 0);
@@ -390,7 +489,9 @@ for (const face of [0, 1]) {
     assert.deepEqual(h.failures, []);
     assert.equal(h.finished(), 1);
     assert.deepEqual(game.faces[face].exited, [1]);
-    assert.equal(h.count('drop'), 1, 'an AI collection remains audible from the fixed human view');
+    assert.equal(h.count('opponentFall'), 1, 'an AI collection remains audible from the fixed human view');
+    assert.equal(h.count('drop'), 0, 'hidden AI effects do not become visible drop callbacks');
+    assert.deepEqual(h.arguments('opponentFall'), [[]]);
     assert.ok(h.count('turn') > 0);
     const distances = h.arguments('turn').map(([distance]) => distance);
     assert.ok(distances.every(distance => Number.isFinite(distance) && distance > 0));
@@ -430,5 +531,34 @@ test('app AI Full: wheel and opponent fall routing stay silent', async () => {
   assert.deepEqual(game.faces[1].exited, [1]);
   assert.equal(h.count('turn'), 0);
   assert.equal(h.count('drop'), 0);
+  assert.equal(h.count('opponentFall'), 0);
   assert.equal(h.count('detent'), 0);
+});
+
+
+test('app: hidden falls stay silent under a mask, on a background document and in headless mode', () => {
+  const game = emptyGame(0);
+  game.faces[1].slots[4][0] = 1;
+  game.angles[4] = physicalAngleFor(1, 5, 0, OUTPUT_GATE + 25, game.geometryVersion);
+  rotate(game, 5, 50);
+  assert.equal(hasOpponentFall(game.events, 0), true);
+  for (const mode of ['handoff', 'home', 'result', 'ai-simulation']) {
+    const h = harness(game, { mode });
+    h.api.soundOpponentFalls(game.events, 0);
+    assert.equal(h.count('opponentFall'), 0, mode);
+  }
+  const h = harness(game);
+  h.context.document.hidden = true;
+  h.api.soundOpponentFalls(game.events, 0);
+  assert.equal(h.count('opponentFall'), 0);
+});
+
+test('app: Full AI speed does not mute hidden falls during the human turn', () => {
+  const game = emptyGame(0);
+  game.faces[1].slots[4][0] = 1;
+  game.angles[4] = physicalAngleFor(1, 5, 0, OUTPUT_GATE + 25, game.geometryVersion);
+  const h = harness(game, { mode: 'play', aiSpeed: 'full' });
+  h.down(5); h.move(5, 50); h.frame(); h.up(5, 50);
+  assert.deepEqual(game.faces[1].exited, [1]);
+  assert.equal(h.count('opponentFall'), 1);
 });

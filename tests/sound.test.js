@@ -117,7 +117,7 @@ function harness(options = {}) {
           const prime = this.buffer?.length === 1;
           state.events.push(prime ? 'prime-start' : 'effect-start');
           if (!prime && options.startError) throw new Error('Source start refused');
-          this.started = true; this.startArgs = args;
+          this.started = true; this.startArgs = args; this.startedAt = state.time;
           (prime ? state.warmups : state.sources).push(this);
         },
         stop() { this.stopped = true; },
@@ -130,7 +130,8 @@ function harness(options = {}) {
       const gate = options.decodeGate;
       if (gate) await gate.promise;
       if (options.decoderError) throw new Error('Decoder unavailable');
-      const buffer = { duration: 0.3, decodedIn: this, asset: data.asset };
+      const buffer = { duration: options.realClipDurations ? readWave(data.asset).duration : 0.3,
+        decodedIn: this, asset: data.asset };
       state.decoded.push(buffer);
       return buffer;
     }
@@ -431,13 +432,157 @@ test('audio : la polyphonie est bornée et les sons écartés ne sont jamais dif
   await player.unlock();
   for (let index = 0; index < 8; index++) {
     state.time += 100;
-    player.drop();
+    player.slide();
   }
   assert.equal(state.sources.length, 5);
   state.sources[0].finish();
   assert.equal(state.sources.length, 5, 'libérer une voix ne lance pas un son écarté');
-  state.time += 100; player.drop();
+  state.time += 100; player.slide();
   assert.equal(state.sources.length, 6);
+});
+
+test('audio : une chute adverse reste audible parmi les vraies durées de glissement et de rotation', async () => {
+  const { player, state } = harness({ realClipDurations: true });
+  await player.unlock();
+  const at = time => {
+    state.time = time;
+    for (const source of state.sources) {
+      if (source.onended && !source.stopped
+        && source.startedAt + source.buffer.duration / source.playbackRate.value * 1000 <= time) source.finish();
+    }
+  };
+  for (const time of [0, 80, 160, 240]) { at(time); player.slide(); }
+  at(320); player.turn(12);
+  assert.equal(state.sources.filter(source => source.connected && !source.stopped).length, 5,
+    'quatre glissements de 356 ms et un clic de rotation de 32 ms sont encore actifs');
+  const wheel = state.sources.at(-1);
+  assert.equal(wheel.buffer.asset, SOUND_ASSETS.wheel);
+  assert.equal(player.opponentFall(), true);
+  const opponent = state.sources.at(-1);
+  assert.equal(opponent.buffer.asset, SOUND_ASSETS.slide);
+  assert.equal(wheel.stopped, true, 'la chute prend la voix de rotation, au lieu de disparaître');
+  assert.equal(state.sources.filter(source => source.connected && !source.stopped).length, 5);
+  assert.equal(state.sources.slice(0, 4).every(source => !source.stopped), true,
+    'les glissements n’ont pas été coupés quand une rotation pouvait céder sa place');
+});
+
+test('audio : les glissements des deux faces peuvent se superposer et gardent des délais indépendants', async () => {
+  const { player, state } = harness();
+  await player.unlock();
+  player.slide();
+  state.time = 20;
+  assert.equal(player.opponentFall(), true, 'un glissement propre récent ne masque pas le glissement adverse');
+  assert.equal(state.sources.length, 2);
+  const [own, opponent] = state.sources;
+  assert.equal(opponent.buffer.asset, SOUND_ASSETS.slide);
+  assert.equal(own.buffer, opponent.buffer, 'aucun clip ne dépend du trajet ou du numéro adverse');
+  assert.deepEqual([own.target.gain.value, opponent.target.gain.value], [.55, .55]);
+  assert.equal(own.playbackRate.value, 1, 'le son des jetons propres conserve sa hauteur');
+  assert.equal(opponent.playbackRate.value, .9, 'la face adverse utilise une hauteur un peu plus grave');
+  assert.equal(state.requests.length, ASSET_COUNT, 'aucune nouvelle ressource ni requête adverse');
+  state.time = 40; player.slide();
+  assert.equal(player.opponentFall(), false);
+  assert.equal(state.sources.length, 2, 'les deux canaux gardent leur plafond de 80 ms');
+  state.time = 80; player.slide();
+  state.time = 100; assert.equal(player.opponentFall(), true);
+  assert.equal(state.sources.length, 4);
+});
+
+test('audio : le glissement adverse plus grave garde son propre temps de lecture et s’arrête au masque', async () => {
+  const { player, state } = harness({ realClipDurations: true });
+  await player.unlock();
+  player.slide();
+  state.time = 20; assert.equal(player.opponentFall(), true);
+  const [own, opponent] = state.sources;
+  const ownEnd = own.startedAt + own.buffer.duration / own.playbackRate.value * 1000;
+  const opponentEnd = opponent.startedAt + opponent.buffer.duration / opponent.playbackRate.value * 1000;
+  assert.ok(ownEnd > 350 && ownEnd < 360 && opponentEnd > 410 && opponentEnd < 420,
+    'le glissement de 356 ms dure environ 396 ms avec le timbre adverse');
+  state.time = 360;
+  for (const source of state.sources) {
+    if (source.startedAt + source.buffer.duration / source.playbackRate.value * 1000 <= state.time) source.finish();
+  }
+  assert.equal(own.connected, false);
+  assert.equal(opponent.connected, true, 'la fin du glissement propre ne tronque pas le son adverse');
+  player.stop();
+  assert.equal(opponent.stopped, true);
+  assert.equal(opponent.connected, false);
+  assert.equal(opponent.onended, null);
+  await player.unlock();
+  assert.equal(state.sources.length, 2, 'réactiver ne rejoue pas la fin de l’ancien son grave');
+  state.time = 500; assert.equal(player.opponentFall(), true);
+  assert.equal(state.sources.at(-1).playbackRate.value, .9);
+  assert.equal(state.requests.length, ASSET_COUNT, 'la variation ne télécharge aucun nouvel enregistrement');
+});
+
+test('audio : le glissement adverse remplace un glissement propre si aucune rotation ne peut libérer de voix', async () => {
+  const { player, state } = harness();
+  await player.unlock();
+  for (const time of [0, 80, 160, 240, 320]) { state.time = time; player.slide(); }
+  assert.equal(state.sources.length, 5);
+  state.time = 321;
+  assert.equal(player.opponentFall(), true);
+  const opponent = state.sources.at(-1);
+  assert.equal(state.sources[0].stopped, true);
+  assert.equal(state.sources.filter(source => source.connected && !source.stopped).length, 5);
+  state.time = 322; player.detent();
+  assert.equal(opponent.stopped, false, 'le clic d’alignement ne coupe pas le glissement adverse qui vient de commencer');
+  assert.equal(state.sources.filter(source => source.connected && !source.stopped).length, 5);
+});
+
+test('audio : les impacts et les glissements adverses sont prioritaires sur les clics', async () => {
+  const { player, state } = harness();
+  await player.unlock();
+  for (const time of [0, 80]) { state.time = time; player.drop(); assert.equal(player.opponentFall(), true); }
+  state.time = 160; player.drop();
+  assert.equal(state.sources.length, 5);
+  state.time = 161; player.detent();
+  assert.equal(state.sources.length, 5, 'un alignement ne remplace aucun des bruits de chute en cours');
+  assert.equal(state.sources.every(source => !source.stopped), true);
+  const firstOwn = state.sources[0], firstOpponent = state.sources[1];
+  state.time = 240; assert.equal(player.opponentFall(), true);
+  assert.equal(firstOpponent.stopped, true, 'un nouveau glissement adverse remplace le plus ancien de son canal');
+  assert.equal(firstOwn.stopped, false);
+  assert.equal(state.sources.filter(source => source.connected && !source.stopped).length, 5);
+  assert.equal(player.result('victory'), true);
+  const melody = state.sources.at(-1);
+  state.time = 320; assert.equal(player.opponentFall(), true); player.detent();
+  assert.equal(melody.stopped, false, 'la mélodie annoncée est toujours protégée');
+  assert.equal(state.sources.filter(source => source.connected && !source.stopped).length, 5);
+  const count = state.sources.length;
+  state.sources.find(source => source.onended)?.finish();
+  assert.equal(state.sources.length, count, 'libérer une voix ne rejoue aucun son refusé');
+});
+
+test('audio : sourdine et masque annulent aussi les chutes adverses sans les rejouer à la reprise', async () => {
+  for (const interruption of ['mask', 'mute']) {
+    const { player, state } = harness();
+    assert.equal(player.opponentFall(), false);
+    assert.equal(state.contexts.length, 0, 'une chute ne crée pas sa propre permission audio');
+    await player.unlock();
+    assert.equal(player.opponentFall(), true); player.drop();
+    const before = state.sources.length;
+    if (interruption === 'mask') player.stop(); else player.setEnabled(false);
+    assert.equal(state.sources.every(source => source.stopped && !source.connected && source.onended === null), true);
+    state.time = 500;
+    assert.equal(player.opponentFall(), false);
+    player.setEnabled(true); await player.unlock();
+    assert.equal(state.sources.length, before, 'les événements pendant l’interruption sont abandonnés');
+    assert.equal(player.opponentFall(), true);
+    assert.equal(state.sources.length, before + 1);
+  }
+});
+
+test('audio : une chute adverse demandée pendant le chargement n’est jamais différée', async () => {
+  const fetchGate = deferred();
+  const { player, state } = harness({ fetchGate });
+  const pending = player.unlock();
+  await Promise.resolve();
+  assert.equal(player.opponentFall(), false);
+  fetchGate.resolve(); await pending;
+  assert.equal(state.sources.length, 0);
+  assert.equal(player.opponentFall(), true);
+  assert.equal(state.sources.length, 1);
 });
 
 test('audio : la rotation utilise un petit clic de coffre discret, distinct de l’alignement', async () => {

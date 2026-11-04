@@ -1,5 +1,9 @@
 # Cascado — Sons libres du jeu
 
+**Jingles et musique de fond.** Les exports Suno *Victory Jingle* et *No Moves Left* remplacent les deux mélodies de résultat dans le jeu. Les WAV d’origine restent archivés avec les effets historiques sous leurs licences respectives. Les fichiers Suno sont fournis séparément de ces sons CC0.
+
+Le réglage **Sons du jeu** contrôle les clics, les jetons et les deux jingles. Le réglage **Musique de fond** contrôle six versions de *Five-Wheel Motif* et *Two-Player Victory*. Les deux interrupteurs et leurs volumes sont mémorisés sur l’appareil. La musique démarre à 25 % sur le plateau. Elle se met en pause sous le masque, hors de l’onglet ou à l’affichage du résultat. À la fin de chaque piste, le tirage exclut le dernier morceau joué, même après rechargement. Le jeu et les jingles sont précachés. Les pistes de fond se chargent individuellement et peuvent être indisponibles hors ligne.
+
 **Version 1.35 · 31 octobre 2026 : coffre-fort et résultats.** La rotation emploie un clic mécanique feutré original de **31,995 ms**, gain **0,12** avant le volume général, distinct du clic d’alignement inchangé. Le signal possède environ **90 % d’énergie en moins par son** que l’ancien frottement filtré, avec un pic final réduit ; la cadence angulaire 12° / 90 ms et la priorité d’alignement de 140 ms sont conservées. Deux compositions originales, victoire **2,10 s** et défaite **1,85 s**, sont jouées en une seule source à la première révélation du résultat. Elles ne consultent aucun verdict avant la révélation enregistrée et ne sont jamais mises en attente si l’audio n’est pas prêt.
 
 En humain–IA, la mélodie suit la victoire ou la défaite de l’humain, quelle que soit sa place. Entre humains, elle suit le destinataire du résultat. En spectateur IA, un vainqueur annoncé reçoit la mélodie de victoire ; une série ne la joue qu’au bilan final, selon ses compteurs de victoires. Égalités, manches intermédiaires, Full et simulation sans plateau restent silencieux. Un retour des statistiques ou une reprise ne rejoue pas la musique ; masque et sourdine l’arrêtent.
@@ -28,8 +32,8 @@ Les trois sons historiques `wheel.wav`, `slide.wav` et `drop.wav` sont des enreg
 | `assets/audio/slide.wav` | Mouvement d’un jeton visible | `Audio/chips-handle-4.ogg` | Casino Audio 1.1 |
 | `assets/audio/drop.wav` | Contact d’un jeton à l’arrivée | `Audio/chip-lay-1.ogg` | Casino Audio 1.1 |
 | `assets/audio/safe-tick.wav` | Clic mécanique feutré des roues | Synthèse originale déterministe | Cascado, CC0 |
-| `assets/audio/victory.wav` | Courte mélodie ascendante de victoire | Composition et synthèse originales | Cascado, CC0 |
-| `assets/audio/defeat.wav` | Courte mélodie descendante de défaite | Composition et synthèse originales | Cascado, CC0 |
+| `assets/audio/victory.wav` | Ancienne mélodie de victoire, archivée | Composition et synthèse originales | Cascado, CC0 |
+| `assets/audio/defeat.wav` | Ancienne mélodie de défaite, archivée | Composition et synthèse originales | Cascado, CC0 |
 
 Les originaux OGG ont été convertis en WAV PCM 16 bits, mono, 44,1 kHz pour être décodés dans Safari et Chrome. Les WAV sont hébergés avec le jeu : aucun service sonore distant, aucun compte et aucune télémétrie. Les documents de licence originaux accompagnent les sons dans `assets/audio/LICENSE-interface.txt` et `assets/audio/LICENSE-casino.txt`.
 

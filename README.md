@@ -1,5 +1,7 @@
 # Cascado — V1
 
+Dans **Options → Audio**, les sons du jeu et la musique de fond ont chacun leur interrupteur et leur volume. *Victory Jingle* et *No Moves Left* accompagnent la victoire et la défaite au moment où le résultat s’affiche. Sur le plateau, une playlist de sept morceaux démarre à 25 % et tire le morceau suivant au hasard en excluant le dernier joué. Les jingles sont disponibles hors ligne après mise en cache du jeu. La musique de fond se charge à la demande.
+
 La version **1.47** guide la rotation au doigt vers les passages de la face affichée. Le centre de l’encoche se cale dans l’axe du passage, avec un repère doré. Les passages ouverts sont prioritaires. Continuer le geste permet de dépasser le repère, et relâcher la roue à proximité termine le centrage. Le glissement des jetons adverses a un timbre légèrement plus grave et reste audible lors d’une chute simultanée sur la face affichée.
 
 La version **1.43** ajoute le niveau **Expert**. Il adapte sa recherche au set : Référence utilise cinq coups propres, six candidats initiaux et trois pistes suivantes ; Miroir 50 privilégie trois coups propres, douze candidats initiaux et six pistes suivantes. Il conserve les heuristiques de priorité aux prochains numéros des deux séries, de réception libre et de préparation des passages. Les niveaux précédents gardent exactement leur stratégie et aucune information adverse supplémentaire n’est fournie.

@@ -2,7 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import vm from 'node:vm';
 import { readFile } from 'node:fs/promises';
-import { createSoundPlayer, SOUND_PREFERENCE_KEY } from '../src/sound.js';
+import { createSoundPlayer, SOUND_PREFERENCE_KEY, SOUND_VOLUME_KEY } from '../src/sound.js';
+import { DEFAULT_MUSIC_VOLUME, MUSIC_ENABLED_KEY, MUSIC_VOLUME_KEY } from '../src/background-music.js';
 import { createGame } from '../src/engine.js';
 import { GAME_SETS } from '../src/game-sets.js';
 import { ORIGINAL_START_MODE } from '../src/starting-position.js';
@@ -53,6 +54,7 @@ function harness(options = {}) {
   const forbiddenSave = () => { writes++; throw new Error('The sound help must not write game data'); };
   const node = action => ({
     dataset: { action }, disabled: false, textContent: '', innerHTML: '', attributes: {},
+    addEventListener() {},
     setAttribute(name, value) { this.attributes[name] = value; },
     closest(selector) { return selector === '[data-action]' || selector === 'button' ? this : null; },
   });
@@ -68,6 +70,9 @@ function harness(options = {}) {
       }
       const status = value.match(/<p\b[^>]*id="sound-test-status"[^>]*>([\s\S]*?)<\/p>/);
       if (status) nodes.set('#sound-test-status', { textContent: status[1] });
+      for (const match of value.matchAll(/<input\b[^>]*name="([^"]+)"/g)) {
+        nodes.set(`[name="${match[1]}"]`, node());
+      }
     },
     querySelector: selector => nodes.get(selector) ?? null,
     addEventListener(name, callback) { appListeners.set(name, callback); },
@@ -109,13 +114,15 @@ function harness(options = {}) {
   });
   const sound = {
     get enabled() { return player.enabled; }, get available() { return player.available; },
+    get volume() { return player.volume; },
     setEnabled(value) { calls.push({ name: 'setEnabled', value }); player.setEnabled(value); },
     confirmEnabled() { calls.push({ name: 'confirmEnabled' }); return player.confirmEnabled(); },
     unlock() { calls.push({ name: 'unlock' }); return player.unlock(); },
     stop() { calls.push({ name: 'stop' }); player.stop(); },
   };
   const context = vm.createContext({
-    app, document, window, sound, SOUND_PREFERENCE_KEY,
+    app, document, window, sound, SOUND_PREFERENCE_KEY, SOUND_VOLUME_KEY,
+    MUSIC_ENABLED_KEY, MUSIC_VOLUME_KEY, musicEnabled: true, musicVolume: DEFAULT_MUSIC_VOLUME,
     GAME_SETS, ORIGINAL_START_MODE, gameSetPreference: 'reference', gameStartPreference: ORIGINAL_START_MODE,
     escape: value => String(value),
     mode: options.mode ?? 'home', session: options.session ?? null,

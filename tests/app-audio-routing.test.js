@@ -90,7 +90,7 @@ function harness(game, options = {}) {
   const sound = Object.fromEntries(['turn', 'detent', 'slide', 'drop', 'opponentFall', 'unlock', 'stop', 'resetTurn'].map(name =>
     [name, (...args) => sounds.push({ name, time: now, args })]));
   const context = vm.createContext({
-    app, document, sound, session: { game }, mode: options.mode ?? 'play', selected: null,
+    app, document, sound, music: { unlock() {} }, session: { game }, mode: options.mode ?? 'play', selected: null,
     surfacePress: null, contacts: new Set(), HOLD_DELAY: 250, REPEAT_INTERVAL: 100,
     failed: false, aiGeneration: 0, aiDirtyGame: null, aiSpeed: options.aiSpeed ?? 'normal',
     performance: { now: () => now },

@@ -26,22 +26,6 @@ function readWave(url) {
   return { ...format, chunks, samples, duration: samples.length / format.rate, peak: samples.reduce((peak, value) => Math.max(peak, Math.abs(value)), 0), energy: samples.reduce((sum, value) => sum + value * value, 0) / format.rate };
 }
 
-function dominantFrequency(wave, start, length = .08) {
-  const slice = wave.samples.slice(Math.round(start * wave.rate), Math.round((start + length) * wave.rate));
-  let strongest = { frequency: 0, energy: -1 };
-  for (let frequency = 200; frequency <= 1200; frequency += 10) {
-    let real = 0, imaginary = 0;
-    for (let i = 0; i < slice.length; i++) {
-      const value = slice[i] * (.5 - .5 * Math.cos(2 * Math.PI * i / (slice.length - 1)));
-      const phase = 2 * Math.PI * frequency * i / wave.rate;
-      real += value * Math.cos(phase); imaginary += value * Math.sin(phase);
-    }
-    const energy = real * real + imaginary * imaginary;
-    if (energy > strongest.energy) strongest = { frequency, energy };
-  }
-  return strongest.frequency;
-}
-
 function deferred() {
   let resolve, reject;
   const promise = new Promise((done, fail) => { resolve = done; reject = fail; });
@@ -130,8 +114,8 @@ function harness(options = {}) {
       const gate = options.decodeGate;
       if (gate) await gate.promise;
       if (options.decoderError) throw new Error('Decoder unavailable');
-      const buffer = { duration: options.realClipDurations ? readWave(data.asset).duration : 0.3,
-        decodedIn: this, asset: data.asset };
+      const duration = options.realClipDurations && data.asset.endsWith('.wav') ? readWave(data.asset).duration : 0.3;
+      const buffer = { duration, decodedIn: this, asset: data.asset };
       state.decoded.push(buffer);
       return buffer;
     }
@@ -140,6 +124,7 @@ function harness(options = {}) {
     // The browser layer is injected so lifecycle and playback stay deterministic.
     ...(!options.production ? { available: true } : {}),
     ...(options.enabled !== undefined ? { enabled: options.enabled } : {}),
+    volume: options.volume,
     ...(options.audioSession !== undefined ? { audioSession: options.audioSession } : {}),
     AudioContext: FakeAudioContext,
     now: () => state.time,
@@ -169,6 +154,35 @@ test('audio : les sons sont disponibles et actifs par défaut, la sourdine reste
   muted.player.turn(); muted.player.detent(); muted.player.slide(); muted.player.drop();
   assert.equal(muted.state.sources.length,0);
   assert.equal(muted.state.contexts.length,0);
+});
+
+test('audio : le volume ajuste les effets et jingles ensemble, indépendamment de la sourdine', async () => {
+  const { player, state } = harness({ volume: 50 });
+  assert.equal(player.volume, 50);
+  await player.unlock();
+  player.slide();
+  assert.equal(player.result('victory'), true);
+  const master = state.gains[0];
+  assert.equal(master.gain.value, .15);
+  assert.equal(state.sources[0].target.target, master);
+  assert.equal(state.sources[1].target.target, master);
+
+  player.setVolume(-5);
+  assert.equal(player.volume, 0);
+  assert.equal(master.gain.value, 0);
+  assert.equal(player.enabled, true);
+  player.setVolume(125);
+  assert.equal(player.volume, 100);
+  assert.equal(master.gain.value, .3);
+  player.setEnabled(false);
+  player.setVolume(25);
+  assert.equal(player.enabled, false);
+  assert.equal(player.volume, 25);
+  assert.equal(player.result('defeat'), false);
+
+  player.setEnabled(true);
+  await player.confirmEnabled();
+  assert.equal(state.gains.findLast(gain => gain.target === state.contexts.at(-1).destination).gain.value, .075);
 });
 
 test('audio : seul un geste explicite active les clips locaux, chargés une fois', async () => {
@@ -980,19 +994,12 @@ test('audio : le véritable clic de coffre est bref, feutré et sans métadonné
   assert.ok(tick.energy * gain * gain < 5e-8, 'budget d’énergie réduit pour les rotations répétées');
 });
 
-test('audio : les mélodies originales montent pour la victoire et descendent doucement pour la défaite', () => {
-  const victory = readWave(SOUND_ASSETS.victory);
-  const defeat = readWave(SOUND_ASSETS.defeat);
-  for (const wave of [victory, defeat]) {
-    assert.deepEqual(wave.chunks, ['fmt ', 'data']);
-    assert.ok(wave.duration >= 1.5 && wave.duration <= 2.2);
-    assert.ok(wave.peak >= .3 && wave.peak <= .6, 'la composition garde de la marge avant écrêtage');
-    assert.ok(wave.energy / wave.duration >= .005, 'la mélodie conserve un signal réellement audible');
-    assert.equal(wave.samples[0], 0);
-    assert.equal(wave.samples.at(-1), 0);
+test('audio : Victory Jingle et No Moves Left sont les deux annonces de résultat', () => {
+  assert.match(new URL(SOUND_ASSETS.victory).pathname, /\/assets\/audio\/victory-jingle\.mp3$/);
+  assert.match(new URL(SOUND_ASSETS.defeat).pathname, /\/assets\/audio\/no-moves-left\.mp3$/);
+  for (const url of [SOUND_ASSETS.victory, SOUND_ASSETS.defeat]) {
+    assert.equal(readFileSync(new URL(url)).toString('ascii', 0, 3), 'ID3');
   }
-  assert.ok(dominantFrequency(victory, .82, .04) > dominantFrequency(victory, .06) * 1.5);
-  assert.ok(dominantFrequency(defeat, 1.04) < dominantFrequency(defeat, .06) * .8);
 });
 
 test('audio : annoncer un résultat joue une seule source complète, sans activation implicite', async () => {

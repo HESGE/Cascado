@@ -4,7 +4,8 @@ import { rulesPreviewMarkup, setupRulesPreview } from './rules-preview.js';
 import { wheelRestrictionMessage } from './wheel-rule.js';
 import { APP_PUBLIC_URL, APP_QR_ASSET, copyAppLink, shareAppLink } from './share.js';
 import { animateBoard, cancelBoardMotion, boardMotionRemaining, retimeBoardMotion, finishBoardMotion } from './motion.js';
-import { createSoundPlayer, SOUND_PREFERENCE_KEY } from './sound.js';
+import { createSoundPlayer, SOUND_PREFERENCE_KEY, SOUND_VOLUME_KEY } from './sound.js';
+import { createBackgroundMusic, normalizeMusicVolume, MUSIC_ENABLED_KEY, MUSIC_VOLUME_KEY, LAST_MUSIC_TRACK_KEY } from './background-music.js';
 import { loadGame, saveGame, clearGame, loadStatistics, resetStatistics } from './storage.js';
 import { newSession, recipientOf, transmit, acceptReveal, visibleTransfers, hasOpponentFall } from './flow.js';
 import { GEOMETRY_VERSION } from './geometry.js';
@@ -96,11 +97,26 @@ app.dataset.aiSpeed = aiSpeed;
 const ai = createAIClient();
 const simulator = createSimulationClient();
 let soundEnabled = true;
+let soundVolume;
+let musicEnabled = true;
+let musicVolume = normalizeMusicVolume();
+let lastMusicTrack;
 let soundTestRequest = 0;
 let soundTestTimer = null;
 let soundTestCancel = null;
-try { soundEnabled = localStorage.getItem(SOUND_PREFERENCE_KEY) !== 'off'; } catch { /* Optional preference. */ }
-const sound = createSoundPlayer({ enabled: soundEnabled });
+try {
+  soundEnabled = localStorage.getItem(SOUND_PREFERENCE_KEY) !== 'off';
+  const savedSoundVolume = localStorage.getItem(SOUND_VOLUME_KEY);
+  if(savedSoundVolume?.trim()) soundVolume = Number(savedSoundVolume);
+  musicEnabled = localStorage.getItem(MUSIC_ENABLED_KEY) !== 'off';
+  musicVolume = normalizeMusicVolume(localStorage.getItem(MUSIC_VOLUME_KEY));
+  lastMusicTrack = localStorage.getItem(LAST_MUSIC_TRACK_KEY);
+} catch { /* Optional preferences. */ }
+const sound = createSoundPlayer({ enabled: soundEnabled, volume: soundVolume });
+const music = createBackgroundMusic({
+  enabled: musicEnabled, volume: musicVolume, lastTrack: lastMusicTrack,
+  onTrackChange: filename => saveAudioPreference(LAST_MUSIC_TRACK_KEY, filename),
+});
 const alignmentFeedback = createAlignmentFeedback({
   allowed: () => mode === 'play' && !document.hidden,
   onArrival: () => sound.detent(),
@@ -166,9 +182,19 @@ function setAISpeed(value) {
     if(next.full) finishBoardMotion(container);
     else if(!previous.full) retimeBoardMotion(container,previous.rate / next.rate);
   }
+  syncBackgroundMusic();
 }
 
-new MutationObserver(syncSpeedPanel).observe(app,{childList:true});
+function syncBackgroundMusic() {
+  const boardShown = app.firstElementChild?.classList.contains('play');
+  const playing = mode === 'play' || (!aiSpeedProfile(aiSpeed).full && ['ai-play','transition','revealing'].includes(mode));
+  music.setActive(Boolean(boardShown && playing && !document.hidden));
+}
+
+new MutationObserver(() => {
+  syncSpeedPanel();
+  syncBackgroundMusic();
+}).observe(app,{childList:true});
 window.addEventListener('resize',syncSpeedPanel);
 window.addEventListener('scroll',syncSpeedPanel,{capture:true,passive:true});
 window.visualViewport?.addEventListener('resize', () => {
@@ -240,6 +266,10 @@ function renderOptions() {
       <p class="muted" data-miroir-start ${gameSetPreference==='miroir-50' ? '' : 'hidden'}><strong>Position de départ</strong><br>Une des 50 positions est tirée au sort. Une revanche propose son complément avec l’autre joueur qui commence.</p>
       <p class="muted" id="game-options-status" role="status">Enregistré automatiquement sur cet appareil. Une partie en cours ou une revanche garde ses réglages.</p>
     </fieldset>
+    <fieldset class="game-options audio-options"><legend>Audio</legend>
+      ${audioOption('game-sound', 'Sons du jeu', 'Volume des sons du jeu', 'Roues, jetons et jingles de victoire ou de défaite.', sound.enabled, sound.volume)}
+      ${audioOption('music', 'Musique de fond', 'Volume de la musique', 'Jouée sur le plateau, avec un nouveau morceau à la fin de chaque piste.', musicEnabled, musicVolume)}
+    </fieldset>
     <div class="actions"><button class="secondary" data-action="statistics">Statistiques</button><button class="secondary" data-action="share-app">Partager l’application</button><button class="secondary" data-action="install">Installer sur mon téléphone</button><button class="secondary" data-action="sound-help">Son : aide et test</button></div>
     <button class="primary" data-action="home">Retour à l’accueil</button></section>`;
   const setControl = app.querySelector('[name="game-set"]');
@@ -266,8 +296,48 @@ function renderOptions() {
   if(startControl) startControl.disabled = gameSetPreference === 'miroir-50';
   setControl?.addEventListener('change', saveOptions);
   startControl?.addEventListener('change', saveOptions);
+  bindAudioOption('game-sound', SOUND_PREFERENCE_KEY, SOUND_VOLUME_KEY,
+    enabled => sound.setEnabled(enabled), volume => sound.setVolume(volume));
+  bindAudioOption('music', MUSIC_ENABLED_KEY, MUSIC_VOLUME_KEY, enabled => {
+    musicEnabled = enabled;
+    music.setEnabled(enabled);
+  }, volume => {
+    musicVolume = volume;
+    music.setVolume(volume);
+  });
   globalThis.window?.scrollTo?.(0, 0);
   focusFirst();
+}
+
+function saveAudioPreference(key, value) {
+  try { localStorage.setItem(key, String(value)); } catch { /* Optional preference. */ }
+}
+
+function audioOption(name, label, volumeLabel, description, enabled, volume) {
+  return `<div class="audio-option">
+    <label class="audio-check"><input type="checkbox" name="${name}" aria-describedby="${name}-help" ${enabled ? 'checked' : ''}><span>${label}</span></label>
+    <p class="muted" id="${name}-help">${description}</p>
+    <label class="audio-volume"><span>${volumeLabel}</span><span data-volume-for="${name}" aria-hidden="true">${volume} %</span>
+      <input type="range" name="${name}-volume" min="0" max="100" step="1" value="${volume}" aria-valuetext="${volume} %" ${enabled ? '' : 'disabled'}>
+    </label>
+  </div>`;
+}
+
+function bindAudioOption(name, enabledKey, volumeKey, setEnabled, setVolume) {
+  const enabled = app.querySelector(`[name="${name}"]`);
+  const volume = app.querySelector(`[name="${name}-volume"]`);
+  const readout = app.querySelector(`[data-volume-for="${name}"]`);
+  enabled.addEventListener('change', () => {
+    setEnabled(enabled.checked);
+    saveAudioPreference(enabledKey, enabled.checked ? 'on' : 'off');
+    volume.disabled = !enabled.checked;
+  });
+  volume.addEventListener('input', () => {
+    setVolume(Number(volume.value));
+    saveAudioPreference(volumeKey, volume.value);
+    readout.textContent = `${volume.value} %`;
+    volume.setAttribute('aria-valuetext', readout.textContent);
+  });
 }
 
 function renderAppShare() {
@@ -325,7 +395,7 @@ function renderSoundHelp() {
   app.innerHTML = `<section class="screen rules">${brand}<h1>Retrouver le son</h1>
     <p>Ce bouton relance le son du jeu et joue un clic de test.</p>
     <button class="primary" data-action="sound-test">Activer et tester le son</button>
-    <p role="status" aria-live="polite" id="sound-test-status">Sur iPhone, désactive le mode silencieux pour cet essai et augmente le volume multimédia. Vérifie aussi que le son ne part pas vers des écouteurs ou une enceinte Bluetooth.</p>
+    <p role="status" aria-live="polite" id="sound-test-status">Vérifie le volume des sons du jeu dans les options. Sur iPhone, désactive aussi le mode silencieux pour cet essai et augmente le volume multimédia.</p>
     <p class="muted">Si le son ne revient pas, ferme puis rouvre l’onglet et réessaie. Conserve les données du site pour garder ta partie.</p>
     <button class="secondary" data-action="options">Retour aux options</button></section>`;
   focusFirst();
@@ -601,6 +671,7 @@ function prepare(replace = false, rematch = false, automatic = false) {
     selected = null;
     if(mixedGame() && !landscape() && !document.hidden) {
       stopMotion();
+      if(event.isTrusted) music.unlock();
       renderPlay(true);
       lockBoardForTransition();
     } else renderMask();
@@ -665,7 +736,7 @@ function renderPlay(spectate = false) {
   // turns. Only the shared wheels and the active-turn labels change.
   const sameBoard = mixed && app.querySelector(`.play[data-face-index="${view.faceIndex}"]`);
   if(!sameBoard) app.innerHTML = `<section class="screen play" data-face-index="${view.faceIndex}" role="group" tabindex="0" style="--player-color:${view.color}">
-    <div class="topbar">${brand}${seriesOf(session.game) ? `<span class="series-counter">Partie ${session.game.series.round} / ${session.game.series.target}</span>` : ''}<div class="topbar-actions">${sound.available ? `<button class="audio-toggle" data-action="sound" aria-label="${sound.enabled ? 'Couper le son' : 'Activer le son'}" aria-pressed="${sound.enabled}">${soundIcon()}</button>` : ''}<button class="pause" aria-label="Mettre en pause et masquer" data-action="pause">Ⅱ</button></div></div>
+    <div class="topbar">${brand}${seriesOf(session.game) ? `<span class="series-counter">Partie ${session.game.series.round} / ${session.game.series.target}</span>` : ''}<div class="topbar-actions">${sound.available ? `<button class="audio-toggle" data-action="sound" aria-label="${sound.enabled ? 'Couper les sons du jeu' : 'Activer les sons du jeu'}" aria-pressed="${sound.enabled}">${soundIcon()}</button>` : ''}<button class="pause" aria-label="Mettre en pause et masquer" data-action="pause">Ⅱ</button></div></div>
     <h1 class="player-title"><span class="symbol" aria-hidden="true">${symbol(view.symbol)}</span><span></span></h1>
     <span class="game-set-tag" data-game-set-label>${escape(gameSetLabel(session.game))}</span>
     <div class="progress"></div>
@@ -682,6 +753,7 @@ function renderPlay(spectate = false) {
   surface.setAttribute('aria-label',spectate ? (mixed ? `Plateau de ${view.name}, tour de l’IA. Les roues tournent automatiquement.` : 'Duel d’IA, plateau observé.') : 'Plateau de jeu. Maintiens une roue ou juste autour, puis fais glisser le doigt autour de son centre pour tourner.');
   if(sameBoard) refreshPlay();
   else updatePlayUI(view);
+  syncBackgroundMusic();
 }
 
 function updatePlayUI(view = displayedView()) {
@@ -736,6 +808,7 @@ function lockBoardForTransition() {
   });
   const end = app.querySelector('[data-action="end"]');
   if(end) end.disabled = true;
+  syncBackgroundMusic();
 }
 
 function refreshPlay(beforeView = null, events = [], directRotation = false) {
@@ -954,10 +1027,16 @@ app.addEventListener('lostpointercapture',event=>finishSurfacePress(event.pointe
 document.addEventListener('pointerup',event=>{
   queueWheelGesture(event);
   finishSurfacePress(event.pointerId,true);
-  if(event.isTrusted && boardVisible() && !document.hidden) sound.unlock();
+  if(event.isTrusted && boardVisible() && !document.hidden) {
+    sound.unlock();
+    music.unlock();
+  }
 },true);
 document.addEventListener('touchend',event=>{
-  if(event.isTrusted && boardVisible() && !document.hidden) sound.unlock();
+  if(event.isTrusted && boardVisible() && !document.hidden) {
+    sound.unlock();
+    music.unlock();
+  }
 },{capture:true,passive:true});
 document.addEventListener('pointercancel',event=>finishSurfacePress(event.pointerId),true);
 
@@ -1264,7 +1343,7 @@ function renderRules() {
     <ol><li>Chacun possède dix jetons : une série de 1 à 5 à gauche et une autre à droite, distinguées par leur couleur et leur symbole.</li><li>À ton tour, choisis une roue et tourne-la lentement. Les deux faces bougent ensemble.</li><li>Tu peux t’arrêter, reprendre et changer de sens sur cette même roue.</li><li>La dernière roue jouée par l’adversaire est interdite. Exception : ton dernier jeton est encore dans la roue 5.</li><li>Pour gagner, sors les dix jetons en respectant l’ordre de 1 à 5 dans chaque série. Tu peux alterner les deux séries. Une sortie hors ordre dans une série fait perdre son propriétaire.</li><li>Contre une IA, appuie sur « Terminer mon tour » et garde le téléphone. À deux humains, appuie sur « Terminer et masquer », puis donne le téléphone au joueur indiqué. Il appuie une seule fois sur le bouton à son prénom pour afficher son plateau.</li></ol>
     ${session && tokenTotal(session.game.geometryVersion) === 5 ? '<p>Ta partie déjà commencée conserve une seule série de cinq jetons et une seule entrée. Pour cette partie, fais sortir les cinq jetons de 1 à 5 pour gagner.</p>' : ''}
     <p>Choisis ton set dans <strong>Options</strong> : <strong>Référence</strong> conserve le réglage habituel. <strong>Miroir 50</strong> utilise des roues symétriques et 50 positions sélectionnées. Le départ est tiré au sort ; une revanche propose son complément avec l’autre joueur qui commence. Les règles et les commandes restent les mêmes.</p>
-    <p>Les nouvelles parties proposent « Repères d’origine — estimés » : les roues retrouvent une position reconstituée d’après les flèches du jeu photographié. Ce départ reste une estimation et ne garantit pas l’équilibre des faces. Tu peux choisir « Ancien départ Cascado » dans les options.</p><p>Pose le doigt sur une roue, maintiens-le et fais-le glisser autour de son centre pour la tourner. La roue suit ton mouvement, dans les deux sens, avec un guidage vers les passages de ta face. Approche une position utile : la roue se cale et le repère devient doré. Poursuis ton geste pour dépasser ce cran et atteindre le suivant. Relâche pour t’arrêter ; garder le doigt immobile ne fait pas tourner. Si tu touches le moyeu, éloigne d’abord le doigt du centre puis poursuis ton geste. Au clavier, sélectionne une roue avec Entrée ou Espace, puis utilise les flèches gauche et droite pour avancer par crans assistés de 6° au maximum.</p><p>Pour faire tomber un jeton, aligne assez largement son ouverture avec une encoche libre de la roue du dessous. Un simple contact des bords ne suffit plus. Si la réception est fermée, prépare cette roue lors d’un autre tour. Les petits repères fixes indiquent les passages.</p><p>En bas du plateau, les jetons déjà arrivés de l’autre joueur apparaissent en transparence, avec son compteur. Ses jetons encore en jeu restent sur sa propre face.</p><p>Le bouton haut-parleur en haut du plateau active ou coupe les sons. Un clic confirme leur réactivation. La rotation produit un petit cliquetis feutré, façon coffre-fort : plus tu tournes vite, plus les sons se rapprochent ; ils s’arrêtent avec ton geste. Le clic net signale seulement un passage suffisamment ouvert entre deux roues de ta face pendant ton tour ; une seule encoche devant un conduit ne suffit pas. Il accompagne aussi un halo et, si disponible, une brève vibration. Tu entends aussi les chutes adverses, même sur la face cachée, avec un bruit générique. Une courte mélodie accompagne la victoire ou la défaite seulement quand le résultat est dévoilé. Si aucun son ne sort, ouvre « Son : aide et test » dans les options pour le relancer et le tester. Sur les anciens iPhone, désactive aussi le mode silencieux et monte le volume multimédia. Full et les simulations sans plateau restent silencieux.</p><p>Choisis Humain ou IA pour chaque joueur au début de la partie. Pour un humain, reprends un nom enregistré sur cet appareil ou crée-en un nouveau. Pour une IA, choisis seulement son niveau : Facile, Normal, Difficile ou Expert. Expert adapte sa recherche au set : il prépare les réceptions, compare les parcours possibles et donne la priorité aux prochains numéros de ses deux séries. Il utilise toujours uniquement sa propre face. Les IA jouent sur cet appareil et ne voient que leur propre face. Contre une IA, ton plateau reste affiché : regarde les roues tourner pendant son tour, puis reprends la main directement. Pour regarder deux IA jouer, choisis IA pour chacun des joueurs dans « Nouvelle partie », puis leurs niveaux. Le résultat est annoncé au passage normal de tour, même si la partie est déjà décidée.</p><p class="muted">Convention de cette adaptation : les sorties simultanées doivent former les prochains numéros consécutifs de chacune des séries concernées. Si des fins simultanées désignent des gagnants différents, la partie est nulle. Le calage des roues est estimé à partir de la vidéo du jeu original ; il ne constitue pas une reproduction exacte.</p>
+    <p>Les nouvelles parties proposent « Repères d’origine — estimés » : les roues retrouvent une position reconstituée d’après les flèches du jeu photographié. Ce départ reste une estimation et ne garantit pas l’équilibre des faces. Tu peux choisir « Ancien départ Cascado » dans les options.</p><p>Pose le doigt sur une roue, maintiens-le et fais-le glisser autour de son centre pour la tourner. La roue suit ton mouvement, dans les deux sens, avec un guidage vers les passages de ta face. Approche une position utile : la roue se cale et le repère devient doré. Poursuis ton geste pour dépasser ce cran et atteindre le suivant. Relâche pour t’arrêter ; garder le doigt immobile ne fait pas tourner. Si tu touches le moyeu, éloigne d’abord le doigt du centre puis poursuis ton geste. Au clavier, sélectionne une roue avec Entrée ou Espace, puis utilise les flèches gauche et droite pour avancer par crans assistés de 6° au maximum.</p><p>Pour faire tomber un jeton, aligne assez largement son ouverture avec une encoche libre de la roue du dessous. Un simple contact des bords ne suffit plus. Si la réception est fermée, prépare cette roue lors d’un autre tour. Les petits repères fixes indiquent les passages.</p><p>En bas du plateau, les jetons déjà arrivés de l’autre joueur apparaissent en transparence, avec son compteur. Ses jetons encore en jeu restent sur sa propre face.</p><p>Le bouton haut-parleur en haut du plateau active ou coupe les sons du jeu, y compris les jingles. Un clic confirme leur réactivation. Dans Options, règle séparément le volume des sons du jeu et celui de la musique de fond, ou coupe l’un des deux. La rotation produit un petit cliquetis feutré, façon coffre-fort : plus tu tournes vite, plus les sons se rapprochent ; ils s’arrêtent avec ton geste. Le clic net signale seulement un passage suffisamment ouvert entre deux roues de ta face pendant ton tour ; une seule encoche devant un conduit ne suffit pas. Il accompagne aussi un halo et, si disponible, une brève vibration. Tu entends aussi les chutes adverses, même sur la face cachée, avec un bruit générique. Une courte mélodie accompagne la victoire ou la défaite seulement quand le résultat est dévoilé. Si aucun son ne sort, ouvre « Son : aide et test » dans les options pour le relancer et le tester. Sur les anciens iPhone, désactive aussi le mode silencieux et monte le volume multimédia. Full et les simulations sans plateau restent silencieux.</p><p>Choisis Humain ou IA pour chaque joueur au début de la partie. Pour un humain, reprends un nom enregistré sur cet appareil ou crée-en un nouveau. Pour une IA, choisis seulement son niveau : Facile, Normal, Difficile ou Expert. Expert adapte sa recherche au set : il prépare les réceptions, compare les parcours possibles et donne la priorité aux prochains numéros de ses deux séries. Il utilise toujours uniquement sa propre face. Les IA jouent sur cet appareil et ne voient que leur propre face. Contre une IA, ton plateau reste affiché : regarde les roues tourner pendant son tour, puis reprends la main directement. Pour regarder deux IA jouer, choisis IA pour chacun des joueurs dans « Nouvelle partie », puis leurs niveaux. Le résultat est annoncé au passage normal de tour, même si la partie est déjà décidée.</p><p class="muted">Convention de cette adaptation : les sorties simultanées doivent former les prochains numéros consécutifs de chacune des séries concernées. Si des fins simultanées désignent des gagnants différents, la partie est nulle. Le calage des roues est estimé à partir de la vidéo du jeu original ; il ne constitue pas une reproduction exacte.</p>
     <button class="primary" data-action="home">J’ai compris</button></section>`;
   const preview = app.querySelector('[data-rules-preview]');
   if(preview) preview.rulesPreviewCleanup = setupRulesPreview(preview);
@@ -1380,8 +1459,13 @@ app.addEventListener('click',async event=>{
     case 'statistics-cancel':if(mode==='statistics-reset')await renderStatistics('',true);break;
     case 'statistics-reset-confirm':await clearStatistics();break;
     case 'resume':renderMask();break;
-    case 'identify':if(mode==='handoff'){sound.unlock();await confirmReveal();}break;
-    case 'ai-start':if(mode==='ai-ready'){sound.unlock();await confirmReveal();}break;
+    case 'identify':
+    case 'ai-start':
+      if(mode !== (action === 'identify' ? 'handoff' : 'ai-ready')) break;
+      if(event.isTrusted) music.unlock();
+      sound.unlock();
+      await confirmReveal();
+      break;
     case 'ai-pause':interrupt();break;
     case 'pause':interrupt();break;
     case 'sound':
@@ -1389,7 +1473,7 @@ app.addEventListener('click',async event=>{
       sound.setEnabled(!sound.enabled);
       try{localStorage.setItem(SOUND_PREFERENCE_KEY,sound.enabled?'on':'off');}catch{/* Optional preference. */}
       if(sound.enabled)sound.confirmEnabled();
-      event.target.closest('button').setAttribute('aria-label',sound.enabled?'Couper le son':'Activer le son');
+      event.target.closest('button').setAttribute('aria-label',sound.enabled?'Couper les sons du jeu':'Activer les sons du jeu');
       event.target.closest('button').setAttribute('aria-pressed',String(sound.enabled));
       event.target.closest('button').innerHTML=soundIcon();
       break;
@@ -1413,6 +1497,7 @@ app.addEventListener('click',async event=>{
 });
 
 app.addEventListener('keydown',event=>{
+  if(event.isTrusted && boardVisible() && !document.hidden) music.unlock();
   if(mode!=='play')return;
   if(event.target.closest('input,select,textarea,[contenteditable]'))return;
   const wheel=event.target.closest('[data-wheel]');

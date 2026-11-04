@@ -1,16 +1,18 @@
-// Local CC0 recordings and original procedural sounds. See docs/SONS-LIBRES.md.
+// Local game effects and result jingles. See docs/SONS-LIBRES.md.
 // The caller supplies visible effects or anonymous opponent falls; this module
 // never reads the game state or schedules sounds for a hidden screen.
 export const SOUND_AVAILABLE = true;
 // The requested restoration starts with sound on once, then keeps new choices.
 export const SOUND_PREFERENCE_KEY = 'ddc-sound-v2';
+export const SOUND_VOLUME_KEY = 'ddc-sound-volume';
+export const DEFAULT_SOUND_VOLUME = 100;
 export const SOUND_ASSETS = Object.freeze({
   wheel: new URL('../assets/audio/safe-tick.wav', import.meta.url).href,
   detent: new URL('../assets/audio/wheel.wav', import.meta.url).href,
   slide: new URL('../assets/audio/slide.wav', import.meta.url).href,
   drop: new URL('../assets/audio/drop.wav', import.meta.url).href,
-  victory: new URL('../assets/audio/victory.wav', import.meta.url).href,
-  defeat: new URL('../assets/audio/defeat.wav', import.meta.url).href,
+  victory: new URL('../assets/audio/victory-jingle.mp3', import.meta.url).href,
+  defeat: new URL('../assets/audio/no-moves-left.mp3', import.meta.url).href,
 });
 
 const SETTINGS = {
@@ -24,6 +26,9 @@ const SETTINGS = {
 };
 
 const isResult = kind => kind === 'victory' || kind === 'defeat';
+const normalizeVolume = value => Number.isFinite(value)
+  ? Math.min(100, Math.max(0, value)) : DEFAULT_SOUND_VOLUME;
+const gameSoundGain = volume => 0.3 * volume / 100;
 
 /** Small, optional sound layer: no event queue, timers or delayed playback. */
 export function createSoundPlayer(options = {}) {
@@ -32,6 +37,7 @@ export function createSoundPlayer(options = {}) {
   const fetchAudio = options.fetch ?? globalThis.fetch?.bind(globalThis);
   const now = options.now ?? (() => globalThis.performance.now());
   let enabled = available && (options.enabled ?? true);
+  let volume = normalizeVolume(options.volume);
   let context = null;
   let master = null;
   let loading = null;
@@ -160,7 +166,7 @@ export function createSoundPlayer(options = {}) {
         context = new AudioContextClass();
         audioContext = context;
         master = context.createGain();
-        master.gain.value = 0.3;
+        master.gain.value = gameSoundGain(volume);
         master.connect(context.destination);
       }
       const needsPrime = created || audioContext.state !== 'running';
@@ -273,6 +279,7 @@ export function createSoundPlayer(options = {}) {
   return {
     get available() { return available; },
     get enabled() { return enabled; },
+    get volume() { return volume; },
     get ready() { return enabled && unlocked && context?.state === 'running' && buffers.size === Object.keys(SOUND_ASSETS).length; },
     unlock() { return activate(); },
     async confirmEnabled() {
@@ -288,6 +295,10 @@ export function createSoundPlayer(options = {}) {
     setEnabled(value) {
       enabled = available && Boolean(value);
       if (!enabled) { unlocked = false; stop(); }
+    },
+    setVolume(value) {
+      volume = normalizeVolume(value);
+      if (master) master.gain.value = gameSoundGain(volume);
     },
     turn,
     resetTurn() { rotationTravel = 0; firstRotationMovement = true; },

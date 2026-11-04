@@ -244,7 +244,7 @@ function renderHome() {
   stopMotion();
   mode = 'home';
   app.innerHTML = `<section class="screen home">${brand}
-    <div class="home-emblem" aria-hidden="true">◉</div>
+    <img class="home-emblem" src="assets/branding/home-emblem.svg" alt="" width="110" height="110">
     <p class="eyebrow">UN TÉLÉPHONE · HUMAINS OU IA</p>
     <h1>À chacun<br>son côté.</h1>
     <p>Tournez les roues. Faites sortir vos deux séries de 1 à 5 dans l’ordre. Gardez votre plateau pour vous.</p>

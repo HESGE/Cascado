@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="120" height="120" viewBox="0 0 120 120">
+  <title>Double spirale de Cascado</title>
+  <g transform="rotate(-24 60 60)" fill="none" stroke-linecap="round">
+    <path d="M93.4 46.5A36 36 0 1 0 80.1 89.9" stroke="#f5f3ed" stroke-width="8"/>
+    <path d="M41.7 49.5A21 21 0 1 1 54.6 80.3" stroke="#abd9cb" stroke-width="8"/>
+    <circle cx="88" cy="79" r="6.7" fill="#f5ac45"/>
+    <circle cx="58.5" cy="59" r="4.7" fill="#f5f3ed"/>
+  </g>
+</svg>

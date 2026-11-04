@@ -13,6 +13,7 @@ const ASSETS = [
   './assets/audio/victory-jingle.mp3', './assets/audio/no-moves-left.mp3',
   './assets/audio/LICENSE-interface.txt', './assets/audio/LICENSE-casino.txt', './assets/audio/LICENSE-original-sounds.txt',
   './icons/icon.svg', './icons/icon-192.png', './icons/icon-512.png', './icons/maskable-512.png',
+  './assets/branding/home-emblem.svg',
   './assets/share/cascado-qr.png', './assets/share/cascado-qr.svg',
 ].map(path => new URL(path, ROOT).href);
 const ASSET_SET = new Set(ASSETS);

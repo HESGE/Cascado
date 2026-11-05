@@ -1,5 +1,7 @@
 # Cascado — V1
 
+La version **1.51** allège les neuf musiques et jingles MP3 de **52,3 à 44,1 Mo**, soit **15,6 %** de moins. Le réencodage LAME VBR qualité 4 conserve la stéréo et la fréquence de 48 kHz. Les durées décodées sont identiques à l’échantillon près.
+
 La version **1.50** ajoute le rendu en volume des règles. L’aperçu des règles utilise un modèle WebGL avec deux faces texturées, l’épaisseur du plateau et dix moyeux tronconiques en volume. Les moyeux dépassent de chaque face et se voient de profil pendant la rotation. Le calcul de profondeur masque les éléments situés derrière le plateau. La pause, le changement de face et la réduction des animations s’appliquent à cet aperçu décoratif, construit avec une partie de démonstration indépendante. Si WebGL est indisponible, l’illustration standard prend le relais. Le module local `src/rules-model-3d.js` est précaché pour le jeu hors ligne.
 
 Elle intègre aussi le passage resserré validé dans l’essai 1.49. Les jetons passent quand les ouvertures partagent au moins **26 unités libres sur 28**, soit environ **93 %** de leur largeur. Ce seuil resserré exige des trous presque en face et dépasse le diamètre de 24 du jeton. Le guidage au doigt aide à centrer les ouvertures. Le moteur, l’aide et le clic d’alignement utilisent ce même seuil, y compris lors des simulations et au prochain mouvement accepté d’une partie sauvegardée.
@@ -18,7 +20,7 @@ La version **1.41** place le **Set de jeu** et la **Position des roues au dépar
 
 La version **1.40** retire l’entrée « Duel automatique » de l’accueil et regroupe Statistiques, Partager, Installer et l’aide au son dans « Options ». Pour observer une partie entre deux IA, choisir IA pour les deux joueurs dans « Nouvelle partie ». Les règles proposent un aperçu lent en 3D des deux faces, avec pause et changement de face ; la préférence de réduction des animations est respectée. Les séries déjà sauvegardées et les outils de simulation restent disponibles.
 
-Version documentaire 1.50 · 5 novembre 2026
+Version documentaire 1.51 · 5 novembre 2026
 
 [Jouer à Cascado](https://hesge.github.io/Cascado/) · [Code source sur GitHub](https://github.com/HESGE/Cascado)
 

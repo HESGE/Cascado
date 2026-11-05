@@ -1,6 +1,6 @@
 # Cascado — Spécifications de la PWA
 
-Version 1.50 · 5 novembre 2026 · Langue du produit : français
+Version 1.51 · 5 novembre 2026 · Langue du produit : français
 
 Statut : V1 développée à la demande de l’utilisateur le 28 octobre 2026. La version 1.23 retient **ddc-v1.5** pour les nouvelles parties : décalages estimés de la vidéo vers 298–299 s, deux entrées et deux séries de 1 à 5 sur chaque face. Ce gabarit ne prétend ni reproduire exactement le jeu filmé ni garantir l’équivalence des faces. La version 1.50 porte le seuil de passage à 26 unités libres sur 28. Les parties et séries déjà enregistrées en **ddc-v1.4** ou **ddc-v1.3** gardent leur calage, leur entrée unique et leurs cinq jetons. La version **1.28** rétablit les sons, ajoute un clic de cran à l’aimantation, renforce celle-ci et élargit la saisie autour des roues sans changer les règles de passage. Le glisser circulaire et l’alternative clavier sont conservés. Les preuves exécutées et essais restant à effectuer sont consignés dans la [fiche de recette](RECETTE-V1.md).
 

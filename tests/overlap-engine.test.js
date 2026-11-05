@@ -28,7 +28,7 @@ function orient(state, face, wheel, notch, angle) {
   state.angles[wheel - 1] = physicalAngleFor(face, wheel, notch, angle);
 }
 
-function fixture(face, gate, source = 0, target = 0, sourceOffset = 5, targetOffset = -5) {
+function fixture(face, gate, source = 0, target = 0, sourceOffset = 1, targetOffset = -1) {
   const state = emptyGame();
   orient(state, face, gate.from, source, gate.sourceAngle + sourceOffset);
   orient(state, face, gate.to, target, gate.targetAngle + targetOffset);
@@ -56,14 +56,14 @@ function overlapWidth(source, target) {
 }
 
 for (const face of [0, 1]) {
-  test(`face ${face}: every notch pair on every link transfers through the clear ±5° overlap`, () => {
+  test(`face ${face}: every notch pair on every link transfers through the near-centred ±1° overlap`, () => {
     for (const gate of gates(face)) {
       for (let source = 0; source < WHEELS[gate.from - 1].notches; source++) {
         for (let target = 0; target < WHEELS[gate.to - 1].notches; target++) {
           const state = fixture(face, gate, source, target);
           const context = `${gate.from}:${source} → ${gate.to}:${target}`;
-          const overlap = overlapWidth(visibleInterval(gate.from, 5), visibleInterval(gate.to, -5, true));
-          assert.ok(overlap >= 20, context);
+          const overlap = overlapWidth(visibleInterval(gate.from, 1), visibleInterval(gate.to, -1, true));
+          assert.ok(overlap >= 26, context);
           assert.equal(rotate(state, gate.from, 0.001), true, context);
           assert.equal(state.faces[face].slots[gate.from - 1][source], null, context);
           assert.equal(state.faces[face].slots[gate.to - 1][target], 1, context);
@@ -113,7 +113,7 @@ for (const face of [0, 1]) {
           for (let target = 0; target < WHEELS[gate.to - 1].notches; target++) {
             const state = fixture(face, gate, source, target, offset, -offset);
             const width = overlapWidth(visibleInterval(gate.from, offset), visibleInterval(gate.to, -offset, true));
-            assert.ok(width > 0 && width < 20);
+            assert.ok(width > 0 && width < 26);
             rotate(state, gate.from, .001);
             assert.equal(state.faces[face].slots[gate.from - 1][source], 1);
             assert.equal(state.faces[face].slots[gate.to - 1][target], null);
@@ -121,6 +121,20 @@ for (const face of [0, 1]) {
             assert.deepEqual(ownTokens(state, face), [1]);
           }
         }
+      }
+    }
+  });
+
+  test(`face ${face}: the former twenty-unit five-degree passage now waits for closer alignment`, () => {
+    for (const gate of gates(face)) {
+      for (const offset of [-5, 5]) {
+        const state = fixture(face, gate, 0, 0, offset, -offset);
+        const width = overlapWidth(visibleInterval(gate.from, offset), visibleInterval(gate.to, -offset, true));
+        assert.ok(width >= 20 && width < 26, `${gate.from}→${gate.to}, ${offset}°`);
+        rotate(state, gate.from, .001);
+        assert.equal(state.faces[face].slots[gate.from - 1][0], 1);
+        assert.equal(state.faces[face].slots[gate.to - 1][0], null);
+        assert.deepEqual(state.events, []);
       }
     }
   });
@@ -135,7 +149,7 @@ for (const face of [0, 1]) {
     const receiver = slotPosition(face, 5, 0, state.angles[4]);
     assert.ok(receiver.y < source.y - 3, 'seat coordinates must expose the former false blockage');
     const width = overlapWidth(visibleInterval(4, sourceOffset), visibleInterval(5, targetOffset, true));
-    assert.ok(width > 0 && width < 20);
+    assert.ok(width > 0 && width < 26);
     rotate(state, 4, 0.001);
     assert.equal(state.faces[face].slots[3][0], 1);
     assert.equal(state.faces[face].slots[4][0], null);
@@ -258,7 +272,7 @@ for (const version of ['ddc-v1', 'ddc-v1.1', 'ddc-v1.2']) {
 
 test('an opponent exit through the clear opening changes neither the local projection nor its audio events', () => {
   const ordinary = emptyGame();
-  orient(ordinary, 1, 5, 0, 94);
+  orient(ordinary, 1, 5, 0, 91);
   const hidden = structuredClone(ordinary);
   hidden.faces[1].slots[4][0] = 2;
   rotate(ordinary, 5, 0.001);

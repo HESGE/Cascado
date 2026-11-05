@@ -510,6 +510,8 @@ body:has(.play) #ai-speed-panel button {
 .rules-preview { margin:0; width:100%; min-width:0; display:grid; gap:12px; }
 .rules-preview-stage { position:relative; width:100%; min-width:0; height:clamp(304px, 100vw, 378px); display:grid; place-items:center; overflow:hidden; border:1px solid #d7e0d9; border-radius:22px; background:radial-gradient(ellipse at 50% 35%, #f6f7ee 0%, #e7eee7 65%, #dce6df 100%); perspective:850px; perspective-origin:50% 43%; }
 .rules-preview-stage::after { content:""; position:absolute; left:27%; right:27%; bottom:22px; height:10px; border-radius:50%; background:#173e5024; filter:blur(7px); pointer-events:none; }
+.rules-preview-model { position:absolute; inset:0; z-index:2; width:100%; height:100%; pointer-events:none; }
+.rules-preview-stage[data-preview-renderer="webgl"] .rules-preview-object { visibility:hidden; }
 .rules-preview-object { --preview-from:-18deg; --preview-depth:20px; position:relative; z-index:1; width:min(210px, 62vw); aspect-ratio:2 / 3; transform-style:preserve-3d; -webkit-transform-style:preserve-3d; transform:rotateX(-4deg) rotateY(-18deg); animation:rules-preview-turn 28s linear infinite; transition:transform 700ms ease; pointer-events:none; }
 .rules-preview-face { position:absolute; inset:0; border-radius:10px; background:linear-gradient(160deg, #197995, #10536d); box-shadow:inset 0 0 0 1px #bde0e13b; backface-visibility:hidden; -webkit-backface-visibility:hidden; }
 .rules-preview-face-front { transform:translateZ(calc(var(--preview-depth) / 2)); }

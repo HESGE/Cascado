@@ -196,24 +196,23 @@ test('the fifth own move can justify loading the other series while preserving t
   assertOwnConservation(expert, 0);
 });
 
-test('Miroir compares more near-term routes while Reference keeps its deeper preparation', () => {
-  // Known development Miroir duel0005, turn5. The set-specific horizon compares
-  // loading the second series now with preparing a receiver for a later turn.
+test('both Expert set profiles load a safe next token with the tighter passage rule', () => {
+  // Saved development Miroir duel0005, turn5. With 26-unit openings, both
+  // search profiles prefer loading series two while its predecessor waits.
   const view = freeze({ faceIndex: 0, geometryVersion: MIRROR_GEOMETRY_VERSION,
     angles: [60.56151032532847, 240.56151032532853, 158.5, 40.20016388609531, 268.70000000000005],
     queue: [2, 3, 4, 5, 6, 7, 8, 9, 10], exited: [],
     slots: [[null], [1, null, null], [null, null], [null, null, null, null], [null, null, null, null, null]],
     engaged: null, lastWheel: 2, allowedWheels: [1, 3, 4, 5] });
-  const mirrorMove = chooseAIMove(view, 'expert');
-  const referenceMove = chooseAIMove({ ...view, geometryVersion: GEOMETRY_VERSION }, 'expert');
-  assert.equal(mirrorMove.wheel, 1);
-  assert.equal(referenceMove.wheel, 3);
-  const game = gameFromOwnView(view);
-  apply(game, mirrorMove);
-  assert.equal(game.faces[0].slots[0][0], 6);
-  assert.equal(game.faces[0].slots[1][0], 1);
-  assert.equal(game.verdict, null);
-  assertOwnConservation(game, 0);
+  for (const geometryVersion of [MIRROR_GEOMETRY_VERSION, GEOMETRY_VERSION]) {
+    const ownView = { ...view, geometryVersion };
+    const game = gameFromOwnView(ownView);
+    apply(game, chooseAIMove(ownView, 'expert'));
+    assert.equal(game.faces[0].slots[0][0], 6);
+    assert.equal(game.faces[0].slots[1][0], 1);
+    assert.equal(game.verdict, null);
+    assertOwnConservation(game, 0);
+  }
 });
 
 test('Expert completes both full queues from unprepared angles through the real physics', () => {

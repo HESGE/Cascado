@@ -2,6 +2,7 @@ import { renderBoard as boardSVG } from './board.js';
 import { createGame, getView } from './engine.js';
 import { GEOMETRY_VERSION } from './geometry.js';
 import { ORIGINAL_START_ANGLES } from './starting-position.js';
+import { mountRulesModel } from './rules-model-3d.js';
 
 let previewInstance = 0;
 const mountedPreviews = new WeakMap();
@@ -41,8 +42,7 @@ export function rulesPreviewMarkup() {
   </figure>`;
 }
 
-/** Returns cleanup for the owner of the rules screen. No frame loop, timer,
- * game action, persistence or session data is used by the presentation. */
+/** The independent illustration owns its rendering resources and controls. */
 export function setupRulesPreview(container) {
   if (!container || typeof container.querySelector !== 'function') return () => {};
   const object = container.querySelector('[data-preview-object]');
@@ -123,10 +123,12 @@ export function setupRulesPreview(container) {
   if (typeof preference?.addEventListener === 'function') preference.addEventListener('change', onPreferenceChange);
   else if (typeof preference?.addListener === 'function') preference.addListener(onPreferenceChange);
   onPreferenceChange();
+  const disposeModel = mountRulesModel(container.querySelector('.rules-preview-stage'), object);
 
   function cleanup() {
     if (disposed) return;
     disposed = true;
+    disposeModel();
     toggle.removeEventListener('click', onToggle);
     flip.removeEventListener('click', onFlip);
     if (typeof preference?.removeEventListener === 'function') preference.removeEventListener('change', onPreferenceChange);

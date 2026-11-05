@@ -2,7 +2,7 @@
 import { WHEELS, NOTCH_RADIUS, normalizeAngle } from './geometry.js';
 
 export const PASSAGE_HALF_WIDTH = NOTCH_RADIUS;
-export const MIN_PASSAGE_WIDTH = 20;
+export const MIN_PASSAGE_WIDTH = 26;
 export const OVERLAP_TOLERANCE = 1e-7;
 const DEGREES = 180 / Math.PI;
 const CORRIDOR = Object.freeze([-PASSAGE_HALF_WIDTH, PASSAGE_HALF_WIDTH]);
@@ -50,7 +50,7 @@ export function mouthInterval(wheelId, localNotchAngle, gateAngle, reversed = fa
   return interval?.map(value => Math.max(CORRIDOR[0], Math.min(CORRIDOR[1], value))) ?? null;
 }
 
-/** A narrow sliver or rim contact no longer lets a token through. */
+/** Require near-full alignment of the two 28-unit mouths. */
 export function isPassableOpening(interval) {
   return Array.isArray(interval)&&interval.length===2&&interval.every(Number.isFinite)
     && interval[1]-interval[0]>=MIN_PASSAGE_WIDTH-OVERLAP_TOLERANCE;
@@ -61,7 +61,7 @@ export function passableMouthInterval(wheelId,localNotchAngle,gateAngle,reversed
   return isPassableOpening(interval)?interval:null;
 }
 
-/** Analytic local offsets at which a moving mouth first/last shares 20 units with a fixed
+/** Analytic local offsets at which a moving mouth first/last shares 26 units with a fixed
  * interval. The companion must already use the moving gate's tangent frame. */
 export function openingAngleBounds(wheelId, companionInterval = CORRIDOR) {
   const wheel = wheelFor(wheelId);

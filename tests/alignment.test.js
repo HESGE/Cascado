@@ -46,15 +46,15 @@ for (const faceIndex of [0, 1]) {
     }
   });
 
-  test(`face ${faceIndex}: markers require the same twenty-unit shared width as the engine`, () => {
+  test(`face ${faceIndex}: markers require the same twenty-six-unit shared width as the engine`, () => {
     const local = view(faceIndex);
     const gate = gates(faceIndex)[0];
     local.slots[0][0] = 1;
-    orient(local, 1, 0, gate.sourceAngle + 5);
-    orient(local, 2, 0, gate.targetAngle - 5);
+    orient(local, 1, 0, gate.sourceAngle + 1.5);
+    orient(local, 2, 0, gate.targetAngle - 1.5);
     assert.equal(passageStates(local)[0].state, 'ready');
     assert.ok(openingOverlap(1,local.angles[0],gate.sourceAngle,2,local.angles[1],gate.targetAngle));
-    orient(local,2,0,gate.targetAngle+5);
+    orient(local,2,0,gate.targetAngle+1.5);
     assert.ok(mouthInterval(1,local.angles[0],gate.sourceAngle));
     assert.ok(mouthInterval(2,local.angles[1],gate.targetAngle));
     assert.ok(passableMouthInterval(1,local.angles[0],gate.sourceAngle));

@@ -55,11 +55,11 @@ function placeAtGate(state, faceIndex, wheelId, notch, localAngle, token) {
   state.faces[faceIndex].slots[wheelId - 1][notch] = token;
 }
 
-// Independent circle-cut oracle: a centred U28 retains twenty clear units
-// until its opposite rim reaches tangent coordinate -6.
+// Independent circle-cut oracle: a centred U28 retains twenty-six clear units
+// until its opposite rim reaches tangent coordinate -12.
 function clearWidthLimit(wheelId) {
   const radius = WHEELS[wheelId - 1].radius;
-  return (Math.asin(14 / radius) + Math.asin(-6 / radius)) * 180 / Math.PI;
+  return (Math.asin(14 / radius) + Math.asin(-12 / radius)) * 180 / Math.PI;
 }
 
 function assertConserved(state) {
@@ -120,7 +120,7 @@ for (const version of ['ddc-v1', 'ddc-v1.1', 'ddc-v1.2']) {
 }
 
 for(const face of [0,1]){
-  test(`face ${face}: entrance and exit require twenty clear units from the U28 mouth`,()=>{
+  test(`face ${face}: entrance and exit require twenty-six clear units from the U28 mouth`,()=>{
     for (const wheelId of [1, 5]) {
       const limit = clearWidthLimit(wheelId);
       for (const side of [-1, 1]) {
@@ -141,7 +141,7 @@ for(const face of [0,1]){
       }
     }
   });
-  test(`face ${face}: all six links use twenty clear units and reject narrower mouths`,()=>{
+  test(`face ${face}: all six links use twenty-six clear units and reject narrower mouths`,()=>{
     for(const link of gates(face)){
       for(const offsetWheel of ['source','receiver']){
         const id = offsetWheel === 'source' ? link.from : link.to;
@@ -167,7 +167,7 @@ for(const face of [0,1]){
 }
 
 for (const face of [0, 1]) {
-  test(`face ${face}: entry occurs at the analytic twenty-unit boundary and loads only queue head`, () => {
+  test(`face ${face}: entry occurs at the analytic twenty-six-unit boundary and loads only queue head`, () => {
     const state = emptyGame();
     state.faces[face].queue = [1, 2, 3, 4, 5];
     const center = physicalAngleFor(face, 1, 0, INPUT_GATE);
@@ -205,7 +205,7 @@ for (const face of [0, 1]) {
   }
 }
 
-test('receiver moved across its twenty-unit boundary triggers a transfer too', () => {
+test('receiver moved across its twenty-six-unit boundary triggers a transfer too', () => {
   for (const face of [0, 1]) {
     const state = emptyGame();
     const link = gates(face)[0];

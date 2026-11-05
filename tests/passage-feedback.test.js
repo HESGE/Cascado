@@ -74,7 +74,7 @@ test('asymmetric companion mouths use the correct tangent orientation for a movi
   for (const version of SUPPORTED_GEOMETRY_VERSIONS) for (const face of [0, 1]) {
     for (let wheelId = 1; wheelId <= 5; wheelId += 1) {
       const links = gates(face).filter(gate => gate.from === wheelId || gate.to === wheelId);
-      for (let chosen = 0; chosen < links.length; chosen += 1) for (const offset of [-3, 3]) {
+      for (let chosen = 0; chosen < links.length; chosen += 1) for (const offset of [-1, 1]) {
         const { view, gate, companionId, companionGate, ownGate } = fixture(face, version, wheelId, chosen);
         view.angles[companionId - 1] += offset;
         const bounds = openingAngleBounds(wheelId,
@@ -100,7 +100,7 @@ test('a stationary mouth narrower than the passage threshold cannot trigger any 
       const companionBounds = openingAngleBounds(companionId);
       view.angles[companionId - 1] = companionGate + companionBounds[1] + .1;
       const mouth = mouthInterval(companionId, view.angles[companionId - 1], companionGate, true);
-      assert.ok(mouth && mouth[1] - mouth[0] < 20);
+      assert.ok(mouth && mouth[1] - mouth[0] < 26);
       assert.equal(advancePassageFeedbackTracker(createPassageFeedbackTracker(view, wheelId), 720), 0);
     }
   }

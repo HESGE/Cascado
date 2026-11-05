@@ -62,7 +62,7 @@ test('invalid faces, wheels, versions and angle arrays fail before creating a gu
 
 for (const faceIndex of [0, 1]) {
   test(`face ${faceIndex}: a rough 23-degree movement completes an actually open 25-degree transfer`, () => {
-    const { game, stop } = setup(faceIndex, 6);
+    const { game, stop } = setup(faceIndex, 1);
     assert.equal(stop.kind, 'paired');
     assert.ok(stop.portIds.includes('1-2-source') && stop.portIds.includes('1-2-receiver'));
     const state = place(game, 1, stop.angle - 25);
@@ -205,7 +205,7 @@ test('all profiles and both faces keep monotone physical sweeps and complete unw
 
 test('paired stops are real common opening windows even with an off-center fixed companion', () => {
   for (const version of SUPPORTED_GEOMETRY_VERSIONS) for (const faceIndex of [0, 1]) {
-    const { game, gate, stop } = setup(faceIndex, 6, version);
+    const { game, gate, stop } = setup(faceIndex, 1, version);
     assert.equal(stop.kind, 'paired');
     game.angles[0] = stop.angle;
     assert.ok(openingOverlap(1, notchAngle(faceIndex, 1, 0, game.angles[0], version), gate.sourceAngle,
@@ -223,7 +223,7 @@ test('every link can guide either its source or its receiver on both faces and e
       const sourceMoves = movingId === gate.from;
       const companionId = sourceMoves ? gate.to : gate.from;
       const companionGate = sourceMoves ? gate.targetAngle : gate.sourceAngle;
-      game.angles[companionId - 1] = physicalAngleFor(faceIndex, companionId, 0, companionGate + 6, version);
+      game.angles[companionId - 1] = physicalAngleFor(faceIndex, companionId, 0, companionGate + 1, version);
       const portId = `${gate.from}-${gate.to}-${sourceMoves ? 'source' : 'receiver'}`;
       const stops = rotationGuideStops(getView(game, faceIndex), movingId).filter(stop => stop.portIds.includes(portId));
       const valid = stops.some(stop => {
@@ -278,7 +278,7 @@ test('every retained notch centre lies on its fixed passage axis, without an ave
 
 test('release centres a slightly passed opening in both directions without moving its companion or duplicating tokens', () => {
   for (const faceIndex of [0, 1]) for (const direction of [-1, 1]) {
-    const { game, stop, gate } = setup(faceIndex, 6);
+    const { game, stop, gate } = setup(faceIndex, 1);
     const state = place(game, 1, stop.angle - direction * 30);
     const companionAngles = [...game.angles.slice(1)];
     const moving = advanceRotationGuide(state, direction * 38);

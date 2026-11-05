@@ -7,8 +7,8 @@ import { animateBoard, cancelBoardMotion, boardMotionRemaining, retimeBoardMotio
 import { createSoundPlayer, SOUND_PREFERENCE_KEY, SOUND_VOLUME_KEY } from './sound.js';
 import { createBackgroundMusic, normalizeMusicVolume, MUSIC_ENABLED_KEY, MUSIC_VOLUME_KEY, LAST_MUSIC_TRACK_KEY } from './background-music.js';
 import { loadGame, saveGame, clearGame, loadStatistics, resetStatistics } from './storage.js';
-import { newSession, recipientOf, transmit, acceptReveal, visibleTransfers, hasOpponentFall } from './flow.js';
-import { GEOMETRY_VERSION } from './geometry.js';
+import { newSession, recipientOf, transmit, closeDecidedTurn, acceptReveal, visibleTransfers, hasOpponentFall } from './flow.js';
+import { GEOMETRY_VERSION, normalizeAngle } from './geometry.js';
 import { GAME_SETS, getGameSet, gameSetIdForGeometry } from './game-sets.js';
 import { installViewportLock } from './viewport-lock.js';
 import { getOpponentProgress } from './opponent-progress.js';
@@ -177,7 +177,7 @@ function setAISpeed(value) {
   app.dataset.aiSpeed = aiSpeed;
   speedSelect.value = aiSpeed;
   try { localStorage.setItem('ddc-ai-speed',aiSpeed); } catch { /* Optional preference. */ }
-  if(mode === 'ai-play') {
+  if(mode === 'ai-play' || (mode === 'transition' && app.dataset.aiPhase === 'falling')) {
     const container = app.querySelector('.board-wrap');
     if(next.full) finishBoardMotion(container);
     else if(!previous.full) retimeBoardMotion(container,previous.rate / next.rate);
@@ -251,7 +251,7 @@ function renderHome() {
     <div class="actions">${session ? '<button class="primary" data-action="resume">Reprendre la partie</button>' : ''}<button class="${session ? 'secondary' : 'primary'}" data-action="new">Nouvelle partie</button><button class="secondary" data-action="rules">Comment jouer</button><button class="secondary" data-action="options">Options</button></div>
     <div class="install-status" id="install-status">${offlineStatus()}</div>
     ${updateAvailable ? '<button class="secondary" data-action="update">Une mise à jour est disponible</button>' : ''}
-    <p class="muted local-note">Sans compte · Partie enregistrée sur cet appareil<br><span data-release>Version 1.47</span></p></section>`;
+    <p class="muted local-note">Sans compte · Partie enregistrée sur cet appareil<br><span data-release>Version 1.48</span></p></section>`;
 }
 
 function renderOptions() {
@@ -818,8 +818,10 @@ function refreshPlay(beforeView = null, events = [], directRotation = false) {
   if(!beforeView)cancelBoardMotion(container);
   container.innerHTML=renderBoard({...view,selected,readOnly:mode === 'ai-play'}, {opponentProgress:getOpponentProgress(session.game,view.faceIndex)});
   const profile = aiSpeedProfile(aiSpeed);
-  const full = mode === 'ai-play' && profile.full;
-  if(beforeView)animateBoard(container,beforeView,view,{events,directRotation,reducedMotion:full ? true : undefined,durationScale:mode === 'ai-play' && !full ? AI_TOKEN_DURATION_SCALE / profile.rate : 1,onSlide:()=>{if(mode !== 'ai-play' || !aiSpeedProfile(aiSpeed).full)sound.slide();},onDrop:()=>{if(mode !== 'ai-play' || !aiSpeedProfile(aiSpeed).full)sound.drop();}});
+  const aiTurn = mode === 'ai-play';
+  const full = aiTurn && profile.full;
+  const audible = () => !aiTurn || !aiSpeedProfile(aiSpeed).full;
+  if(beforeView)animateBoard(container,beforeView,view,{events,directRotation,reducedMotion:full ? true : undefined,durationScale:aiTurn && !full ? AI_TOKEN_DURATION_SCALE / profile.rate : 1,onSlide:()=>{if(audible())sound.slide();},onDrop:()=>{if(audible())sound.drop();}});
   updatePlayUI(view);
   paintAlignmentFeedback();
 }
@@ -868,12 +870,18 @@ function applyRotations(localDeltas, directRotation = false, rotationGuide = nul
     const delta=directRotation
       ? (rotationGuide?advanceRotationGuide(rotationGuide,physical):physical)
       : rotationDetentDelta(selected,session.game.angles[selected-1],Math.sign(physical),session.game.geometryVersion);
-    if(rotate(session.game,selected,delta)) {
-      steps.push(delta);
+    const start = session.game.angles[selected - 1];
+    if(rotate(session.game,selected,delta,{stopOnVerdict:true})) {
+      const direction = Math.sign(delta);
+      const travel = session.game.verdict
+        ? direction * normalizeAngle(direction * (session.game.angles[selected - 1] - start))
+        : delta;
+      steps.push(travel);
       // Feedback follows actual displayed movement and the common opening of
       // two own-face wheels. A preparation stop alone never produces a click.
       if(directRotation && passageTracker
-        && advancePassageFeedbackTracker(passageTracker,delta*(session.game.active===0?1:-1))>0) passageOpened=true;
+        && advancePassageFeedbackTracker(passageTracker,travel*(session.game.active===0?1:-1))>0) passageOpened=true;
+      if(session.game.verdict) break;
     }
   }
   if(!steps.length){if(rotationGuide)updatePlayUI();return false;}
@@ -884,6 +892,7 @@ function applyRotations(localDeltas, directRotation = false, rotationGuide = nul
   soundOpponentFalls(newBatches,session.game.active);
   if(passageOpened)alignmentFeedback.pulse(selected);
   persist({type:'rotation',wheel:selected,delta:steps.reduce((sum,delta)=>sum+delta,0),steps});
+  if(session.game.verdict) void finishDecidedTurn();
   return true;
 }
 const applyRotation=localDelta=>applyRotations([localDelta]);
@@ -1040,13 +1049,13 @@ document.addEventListener('touchend',event=>{
 },{capture:true,passive:true});
 document.addEventListener('pointercancel',event=>finishSurfacePress(event.pointerId),true);
 
-function stopMotion() {
+function stopMotion(keepSound = false) {
   cancelSoundTest();
   cancelAITurn();
   finishSurfacePress();
   alignmentFeedback.stop();
   cancelBoardMotion(app.querySelector('.board-wrap'));
-  sound.stop();
+  if(!keepSound) sound.stop();
 }
 
 function cancelAITurn() {
@@ -1204,7 +1213,7 @@ async function runAITurn() {
       if(Math.abs(delta) < 1e-12) continue;
       const before = getView(game, face);
       const firstNewEvent = game.events.length;
-      if(!rotate(game, selected, delta * (active === 0 ? 1 : -1))) {
+      if(!rotate(game, selected, delta * (active === 0 ? 1 : -1), { stopOnVerdict: true })) {
         cancelAITurn();renderAIReady();return;
       }
       aiDirtyGame = game;
@@ -1214,6 +1223,7 @@ async function runAITurn() {
       if(transfers.length) app.dataset.aiPhase = 'falling';
       refreshPlay(before, transfers, true);
       soundOpponentFalls(newBatches, face);
+      if(game.verdict) { await finishDecidedTurn(); return; }
       if(time - lastSaved >= 150 || rotation.done || transfers.length) {
         await saveAIMovement();
         if(!current()) return;
@@ -1244,6 +1254,28 @@ async function runAITurn() {
   }
 }
 
+async function finishDecidedTurn() {
+  if(!closeDecidedTurn(session)) return;
+  const original = session;
+  const generation = aiGeneration;
+  const board = app.querySelector('.board-wrap');
+  const current = () => mode === 'transition' && original === session && generation === aiGeneration
+    && !failed && !document.hidden && !landscape();
+  lockBoardForTransition();
+  finishSurfacePress();
+  selected = null;
+  session.game.selectedWheel = null;
+  aiDirtyGame = null;
+  const saved = persist({type:'end-turn'});
+  while(current() && boardMotionRemaining(board) > 0) {
+    if(!await waitAIFrame(16,generation)) return;
+  }
+  await saved;
+  if(!current()) return;
+  finishBoardMotion(board);
+  await confirmReveal({keepSound:true});
+}
+
 async function finishTurn() {
   const original = session;
   stopMotion();
@@ -1258,7 +1290,6 @@ async function finishTurn() {
   await persist({type:'end-turn'});
   if(failed || mode !== 'transition' || generation !== aiGeneration || original !== session) return;
   if(document.hidden || landscape()) return renderMask();
-  // Passed verdicts may be announced here; an open hidden verdict never stops AI.
   if(mixedGame() || isAIPlayer(session.game, session.game.active)) await confirmReveal();
   else renderMask();
 }
@@ -1343,17 +1374,18 @@ function renderRules() {
     <ol><li>Chacun possède dix jetons : une série de 1 à 5 à gauche et une autre à droite, distinguées par leur couleur et leur symbole.</li><li>À ton tour, choisis une roue et tourne-la lentement. Les deux faces bougent ensemble.</li><li>Tu peux t’arrêter, reprendre et changer de sens sur cette même roue.</li><li>La dernière roue jouée par l’adversaire est interdite. Exception : ton dernier jeton est encore dans la roue 5.</li><li>Pour gagner, sors les dix jetons en respectant l’ordre de 1 à 5 dans chaque série. Tu peux alterner les deux séries. Une sortie hors ordre dans une série fait perdre son propriétaire.</li><li>Contre une IA, appuie sur « Terminer mon tour » et garde le téléphone. À deux humains, appuie sur « Terminer et masquer », puis donne le téléphone au joueur indiqué. Il appuie une seule fois sur le bouton à son prénom pour afficher son plateau.</li></ol>
     ${session && tokenTotal(session.game.geometryVersion) === 5 ? '<p>Ta partie déjà commencée conserve une seule série de cinq jetons et une seule entrée. Pour cette partie, fais sortir les cinq jetons de 1 à 5 pour gagner.</p>' : ''}
     <p>Choisis ton set dans <strong>Options</strong> : <strong>Référence</strong> conserve le réglage habituel. <strong>Miroir 50</strong> utilise des roues symétriques et 50 positions sélectionnées. Le départ est tiré au sort ; une revanche propose son complément avec l’autre joueur qui commence. Les règles et les commandes restent les mêmes.</p>
-    <p>Les nouvelles parties proposent « Repères d’origine — estimés » : les roues retrouvent une position reconstituée d’après les flèches du jeu photographié. Ce départ reste une estimation et ne garantit pas l’équilibre des faces. Tu peux choisir « Ancien départ Cascado » dans les options.</p><p>Pose le doigt sur une roue, maintiens-le et fais-le glisser autour de son centre pour la tourner. La roue suit ton mouvement, dans les deux sens, avec un guidage vers les passages de ta face. Approche une position utile : la roue se cale et le repère devient doré. Poursuis ton geste pour dépasser ce cran et atteindre le suivant. Relâche pour t’arrêter ; garder le doigt immobile ne fait pas tourner. Si tu touches le moyeu, éloigne d’abord le doigt du centre puis poursuis ton geste. Au clavier, sélectionne une roue avec Entrée ou Espace, puis utilise les flèches gauche et droite pour avancer par crans assistés de 6° au maximum.</p><p>Pour faire tomber un jeton, aligne assez largement son ouverture avec une encoche libre de la roue du dessous. Un simple contact des bords ne suffit plus. Si la réception est fermée, prépare cette roue lors d’un autre tour. Les petits repères fixes indiquent les passages.</p><p>En bas du plateau, les jetons déjà arrivés de l’autre joueur apparaissent en transparence, avec son compteur. Ses jetons encore en jeu restent sur sa propre face.</p><p>Le bouton haut-parleur en haut du plateau active ou coupe les sons du jeu, y compris les jingles. Un clic confirme leur réactivation. Dans Options, règle séparément le volume des sons du jeu et celui de la musique de fond, ou coupe l’un des deux. La rotation produit un petit cliquetis feutré, façon coffre-fort : plus tu tournes vite, plus les sons se rapprochent ; ils s’arrêtent avec ton geste. Le clic net signale seulement un passage suffisamment ouvert entre deux roues de ta face pendant ton tour ; une seule encoche devant un conduit ne suffit pas. Il accompagne aussi un halo et, si disponible, une brève vibration. Tu entends aussi les chutes adverses, même sur la face cachée, avec un bruit générique. Une courte mélodie accompagne la victoire ou la défaite seulement quand le résultat est dévoilé. Si aucun son ne sort, ouvre « Son : aide et test » dans les options pour le relancer et le tester. Sur les anciens iPhone, désactive aussi le mode silencieux et monte le volume multimédia. Full et les simulations sans plateau restent silencieux.</p><p>Choisis Humain ou IA pour chaque joueur au début de la partie. Pour un humain, reprends un nom enregistré sur cet appareil ou crée-en un nouveau. Pour une IA, choisis seulement son niveau : Facile, Normal, Difficile ou Expert. Expert adapte sa recherche au set : il prépare les réceptions, compare les parcours possibles et donne la priorité aux prochains numéros de ses deux séries. Il utilise toujours uniquement sa propre face. Les IA jouent sur cet appareil et ne voient que leur propre face. Contre une IA, ton plateau reste affiché : regarde les roues tourner pendant son tour, puis reprends la main directement. Pour regarder deux IA jouer, choisis IA pour chacun des joueurs dans « Nouvelle partie », puis leurs niveaux. Le résultat est annoncé au passage normal de tour, même si la partie est déjà décidée.</p><p class="muted">Convention de cette adaptation : les sorties simultanées doivent former les prochains numéros consécutifs de chacune des séries concernées. Si des fins simultanées désignent des gagnants différents, la partie est nulle. Le calage des roues est estimé à partir de la vidéo du jeu original ; il ne constitue pas une reproduction exacte.</p>
+    <p>Les nouvelles parties proposent « Repères d’origine — estimés » : les roues retrouvent une position reconstituée d’après les flèches du jeu photographié. Ce départ reste une estimation et ne garantit pas l’équilibre des faces. Tu peux choisir « Ancien départ Cascado » dans les options.</p><p>Pose le doigt sur une roue, maintiens-le et fais-le glisser autour de son centre pour la tourner. La roue suit ton mouvement, dans les deux sens, avec un guidage vers les passages de ta face. Approche une position utile : la roue se cale et le repère devient doré. Poursuis ton geste pour dépasser ce cran et atteindre le suivant. Relâche pour t’arrêter ; garder le doigt immobile ne fait pas tourner. Si tu touches le moyeu, éloigne d’abord le doigt du centre puis poursuis ton geste. Au clavier, sélectionne une roue avec Entrée ou Espace, puis utilise les flèches gauche et droite pour avancer par crans assistés de 6° au maximum.</p><p>Pour faire tomber un jeton, aligne assez largement son ouverture avec une encoche libre de la roue du dessous. Un simple contact des bords ne suffit plus. Si la réception est fermée, prépare cette roue lors d’un autre tour. Les petits repères fixes indiquent les passages.</p><p>En bas du plateau, les jetons déjà arrivés de l’autre joueur apparaissent en transparence, avec son compteur. Ses jetons encore en jeu restent sur sa propre face.</p><p>Le bouton haut-parleur en haut du plateau active ou coupe les sons du jeu, y compris les jingles. Un clic confirme leur réactivation. Dans Options, règle séparément le volume des sons du jeu et celui de la musique de fond, ou coupe l’un des deux. La rotation produit un petit cliquetis feutré, façon coffre-fort : plus tu tournes vite, plus les sons se rapprochent ; ils s’arrêtent avec ton geste. Le clic net signale seulement un passage suffisamment ouvert entre deux roues de ta face pendant ton tour ; une seule encoche devant un conduit ne suffit pas. Il accompagne aussi un halo et, si disponible, une brève vibration. Tu entends aussi les chutes adverses, même sur la face cachée, avec un bruit générique. Une courte mélodie accompagne la victoire ou la défaite seulement quand le résultat est dévoilé. Si aucun son ne sort, ouvre « Son : aide et test » dans les options pour le relancer et le tester. Sur les anciens iPhone, désactive aussi le mode silencieux et monte le volume multimédia. Full et les simulations sans plateau restent silencieux.</p><p>Choisis Humain ou IA pour chaque joueur au début de la partie. Pour un humain, reprends un nom enregistré sur cet appareil ou crée-en un nouveau. Pour une IA, choisis seulement son niveau : Facile, Normal, Difficile ou Expert. Expert adapte sa recherche au set : il prépare les réceptions, compare les parcours possibles et donne la priorité aux prochains numéros de ses deux séries. Il utilise toujours uniquement sa propre face. Les IA jouent sur cet appareil et ne voient que leur propre face. Contre une IA, ton plateau reste affiché : regarde les roues tourner pendant son tour, puis reprends la main directement. Pour regarder deux IA jouer, choisis IA pour chacun des joueurs dans « Nouvelle partie », puis leurs niveaux. Dès qu’une chute décide de la victoire, de la défaite ou de l’égalité, la roue s’arrête et le résultat s’affiche après l’animation visible.</p><p class="muted">Convention de cette adaptation : les sorties simultanées doivent former les prochains numéros consécutifs de chacune des séries concernées. Si des fins simultanées désignent des gagnants différents, la partie est nulle. Le calage des roues est estimé à partir de la vidéo du jeu original ; il ne constitue pas une reproduction exacte.</p>
     <button class="primary" data-action="home">J’ai compris</button></section>`;
   const preview = app.querySelector('[data-rules-preview]');
   if(preview) preview.rulesPreviewCleanup = setupRulesPreview(preview);
 }
 
-async function confirmReveal() {
-  stopMotion();
+async function confirmReveal({keepSound = false} = {}) {
+  stopMotion(keepSound);
   sound.unlock();
   const original = session;
   const generation = aiGeneration;
+  if(session.phase === 'open' && !headlessSeries()) closeDecidedTurn(session);
   const freshResult = session.phase === 'passed';
   // Ne jamais restaurer la permission après une interruption pendant l’écriture.
   const target=acceptReveal(session);

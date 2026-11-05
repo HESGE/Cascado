@@ -22,7 +22,7 @@ function between(start, end) {
 // runtime test hook is used.
 const startup = between('function renderHome()', '\nfunction ensureStatisticsIdentity(')
   + between('function soundIcon()', '\nfunction renderPlay(')
-  + between('function stopMotion()', '\nfunction cancelAITurn(')
+  + between('function stopMotion(', '\nfunction cancelAITurn(')
   + between('function interrupt()', "\ndocument.addEventListener('pointerdown'")
   + between("app.addEventListener('click',async event=>{", "\napp.addEventListener('keydown'")
   + between("document.addEventListener('visibilitychange'", "\nwindow.addEventListener('beforeinstallprompt'");

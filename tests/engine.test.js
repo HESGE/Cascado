@@ -344,6 +344,20 @@ test('correct fifth exit takes a frozen decisive snapshot without stopping rotat
   assert.equal(endTurn(state), true);
 });
 
+test('graphical rotation stops at the decisive angle and refuses any further movement', () => {
+  const state = emptyGame();
+  state.faces[0].exited = [1, 2, 3, 4];
+  placeAtGate(state, 0, 5, 0, OUTPUT_GATE - 25, 5);
+  const start = state.angles[4];
+  assert.equal(rotate(state, 5, 50, { stopOnVerdict: true }), true);
+  assert.equal(state.verdict.winner, 0);
+  assert.deepEqual(state.angles, state.verdict.snapshot.angles);
+  assert.ok(angularDistance(state.angles[4], start) < 50);
+  const decided = structuredClone(state);
+  assert.equal(rotate(state, 5, 1, { stopOnVerdict: true }), false);
+  assert.deepEqual(state, decided);
+});
+
 test('hidden order failure does not change controls, and later opposing failure cannot rewrite verdict', () => {
   const state = emptyGame();
   state.faces[0].slots[4][0] = 2;

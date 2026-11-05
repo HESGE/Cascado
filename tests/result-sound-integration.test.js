@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import vm from 'node:vm';
 import { readFile } from 'node:fs/promises';
 import { createGame } from '../src/engine.js';
-import { acceptReveal, newSession } from '../src/flow.js';
+import { acceptReveal, closeDecidedTurn, newSession } from '../src/flow.js';
 import { configurePlayers, isAIPlayer, singleHumanIndex } from '../src/players.js';
 import { createSeries, seriesOf, seriesGameId, recordSeriesResult, createNextSeriesGame } from '../src/series.js';
 import { tokenTotal } from '../src/tokens.js';
@@ -26,9 +26,9 @@ function between(start, end) {
 const routing = between('const gameSetLabel =', '\n// Keep the controls connected')
   + between('function playRevealedResultSound()', '\nfunction startingProtocolInfo(')
   + between('function renderSeriesSummary(', '\nfunction renderRules(')
-  + between('async function confirmReveal()', '\nfunction interrupt(')
+  + between('async function confirmReveal(', '\nfunction interrupt(')
   + between('function interrupt()', "\ndocument.addEventListener('pointerdown'")
-  + between('function stopMotion()', '\nfunction cancelAITurn(')
+  + between('function stopMotion(', '\nfunction cancelAITurn(')
   + between("app.addEventListener('click',async event=>{", "\napp.addEventListener('keydown'");
 
 function deferred() {
@@ -86,7 +86,7 @@ function harness(session = finished(), options = {}) {
     app, document, sound, session, aiGeneration: 0, failed: false, mode: options.mode ?? 'handoff',
     aiSpeed: options.aiSpeed ?? 'normal', selected: null, contacts: new Set(), keys: new Set(), blockers: new Set(),
     statisticsReturn: 'result', brand: '<div>CASCADO</div>',
-    acceptReveal, isAIPlayer, getResultSound, seriesOf, recordSeriesResult, createNextSeriesGame, newSession,
+    acceptReveal, closeDecidedTurn, isAIPlayer, getResultSound, seriesOf, recordSeriesResult, createNextSeriesGame, newSession,
     tokenTotal, aiSpeedProfile, getGameSet, gameSetIdForGeometry,
     symbol: value => value, escape: value => String(value), focusFirst() {},
     seriesScore: () => '', speedSlot: () => '',
@@ -137,15 +137,33 @@ test('result music: a passed verdict stays silent until the reveal has been dura
   assert.ok(h.trace.indexOf('result') > h.trace.indexOf('save-end'));
 });
 
-test('result music: an open hidden verdict is not consulted by the result-audio path', async () => {
+test('result music: resuming an unfinished game resumes play silently', async () => {
   const session = finished({ phase: 'open' });
-  Object.defineProperty(session.game, 'verdict', { get() { throw new Error('Hidden verdict was read by presentation'); } });
+  session.game.verdict = null;
   const h = harness(session);
   await h.api.confirmReveal();
   assert.equal(h.context.mode, 'play');
   assert.equal(session.phase, 'open');
   assert.deepEqual(h.sounds, []);
 });
+
+for (const winner of [0, 1]) {
+  test(`result music: a resumed decisive turn announces winner ${winner} from the original player's perspective`, async () => {
+    const session = finished({ active: 0, phase: 'open', winner });
+    session.game.engaged = 5;
+    const h = harness(session);
+    const turn = session.game.turn;
+
+    await h.click('identify');
+
+    assert.equal(h.context.mode, 'result');
+    assert.equal(session.phase, 'revealed-result');
+    assert.equal(session.recipient, 0);
+    assert.equal(session.game.turn, turn + 1);
+    assert.deepEqual(h.sounds, [{ kind: winner === 0 ? 'victory' : 'defeat',
+      phase: 'revealed-result', mode: 'result', saved: true }]);
+  });
+}
 
 for (const human of [0, 1]) {
   for (const winner of [0, 1]) {

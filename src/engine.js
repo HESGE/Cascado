@@ -229,7 +229,8 @@ function trajectoryStops(state, wheelId, delta) {
 }
 
 /** Mutates only accepted, finite movement. UI controls enforce degrees per second. */
-export function rotate(state, wheelId, physicalDeltaDegrees) {
+export function rotate(state, wheelId, physicalDeltaDegrees, { stopOnVerdict = false } = {}) {
+  if (stopOnVerdict && state.verdict) return false;
   if (!WHEELS.some(({ id }) => id === wheelId) || !Number.isFinite(physicalDeltaDegrees) || Math.abs(physicalDeltaDegrees) < 1e-12) return false;
   if (!allowedWheels(state).includes(wheelId)) return false;
   state.engaged = wheelId;
@@ -237,6 +238,7 @@ export function rotate(state, wheelId, physicalDeltaDegrees) {
   for (const angle of trajectoryStops(state, wheelId, physicalDeltaDegrees)) {
     state.angles[wheelId - 1] = normalizeAngle(angle);
     stabilize(state, wheelId);
+    if (stopOnVerdict && state.verdict) return true;
   }
   // A near-duplicate final boundary may be merged, but the commanded angle is exact.
   state.angles[wheelId - 1] = finish;

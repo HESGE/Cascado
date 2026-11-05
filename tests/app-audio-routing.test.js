@@ -4,9 +4,9 @@ import vm from 'node:vm';
 import { readFile } from 'node:fs/promises';
 import { createGame, rotate, getView, allowedWheels } from '../src/engine.js';
 import { renderBoard, wheelCenter } from '../src/board.js';
-import { visibleTransfers, hasOpponentFall } from '../src/flow.js';
+import { newSession, closeDecidedTurn, visibleTransfers, hasOpponentFall } from '../src/flow.js';
 import { getOpponentProgress } from '../src/opponent-progress.js';
-import { physicalAngleFor, gates, angularDistance, OUTPUT_GATE, inputGates } from '../src/geometry.js';
+import { physicalAngleFor, gates, angularDistance, normalizeAngle, OUTPUT_GATE, inputGates } from '../src/geometry.js';
 import { createRotationGuide, advanceRotationGuide, finishRotationGuide } from '../src/rotation-guide.js';
 import { createWheelGesture, advanceWheelGesture } from '../src/gesture.js';
 import { wheelAtPoint } from '../src/wheel-hit.js';
@@ -65,6 +65,7 @@ function harness(game, options = {}) {
   const waits = [];
   const failures = [];
   let turnsFinished = 0;
+  const resultReveals = [];
   const board = { innerHTML: '' };
   const labels = new Map();
   const svg = {
@@ -90,11 +91,11 @@ function harness(game, options = {}) {
   const sound = Object.fromEntries(['turn', 'detent', 'slide', 'drop', 'opponentFall', 'unlock', 'stop', 'resetTurn'].map(name =>
     [name, (...args) => sounds.push({ name, time: now, args })]));
   const context = vm.createContext({
-    app, document, sound, music: { unlock() {} }, session: { game }, mode: options.mode ?? 'play', selected: null,
+    app, document, sound, music: { unlock() {} }, session: newSession(game), mode: options.mode ?? 'play', selected: null,
     surfacePress: null, contacts: new Set(), HOLD_DELAY: 250, REPEAT_INTERVAL: 100,
     failed: false, aiGeneration: 0, aiDirtyGame: null, aiSpeed: options.aiSpeed ?? 'normal',
     performance: { now: () => now },
-    getView, rotate, allowedWheels, renderBoard, wheelCenter, getOpponentProgress,
+    getView, rotate, allowedWheels, normalizeAngle, renderBoard, wheelCenter, getOpponentProgress,
     visibleTransfers, hasOpponentFall, createRotationGuide, advanceRotationGuide, finishRotationGuide,
     createWheelGesture, advanceWheelGesture, wheelAtPoint, ROTATION_STEP, rotationDetentDelta,
     createPassageFeedbackTracker, advancePassageFeedbackTracker,
@@ -129,6 +130,14 @@ function harness(game, options = {}) {
     waitAIFrame: async elapsed => { now += Math.max(16, elapsed); return true; },
     saveAIMovement: async () => {},
     finishTurn: async () => { turnsFinished++; context.mode = 'transition'; },
+    closeDecidedTurn,
+    lockBoardForTransition() { context.mode = 'transition'; },
+    boardMotionRemaining: () => Math.max(0, (options.fallUntil ?? 0) - now),
+    finishBoardMotion() {},
+    async confirmReveal({ keepSound }) {
+      resultReveals.push({ time: now, keepSound });
+      context.mode = 'result';
+    },
   });
   vm.runInContext(routing, context, { filename: 'app-audio-routing.js' });
   const api = vm.runInContext('({applyRotations, applyRotation, flushWheelGesture, finishSurfacePress, beginSurfaceRotation, stopMotion, runAITurn, soundOpponentFalls})', context);
@@ -142,7 +151,7 @@ function harness(game, options = {}) {
     ...point(wheel, degrees), pointerId: 7, button: 0, isPrimary: true, isTrusted: false,
     target: { closest: () => null }, preventDefault() {}, ...extras,
   });
-  return { game, context, api, sounds, animations, saves, waits, failures, frames,
+  return { game, context, api, sounds, animations, saves, waits, failures, frames, resultReveals,
     count: name => sounds.filter(item => item.name === name).length,
     arguments: name => sounds.filter(item => item.name === name).map(item => item.args),
     down(wheel = 1, degrees = 0) { appListeners.get('pointerdown')(event(wheel, degrees)); },
@@ -561,4 +570,43 @@ test('app: Full AI speed does not mute hidden falls during the human turn', () =
   h.down(5); h.move(5, 50); h.frame(); h.up(5, 50);
   assert.deepEqual(game.faces[1].exited, [1]);
   assert.equal(h.count('opponentFall'), 1);
+});
+
+test('app: a decisive fall locks the gesture immediately and reveals after the visible animation', async () => {
+  const game = emptyGame(0);
+  game.faces[0].exited = [1, 2, 3, 4, 5, 6, 7, 8, 9];
+  game.faces[0].slots[4][0] = 10;
+  game.angles[4] = physicalAngleFor(0, 5, 0, OUTPUT_GATE - 25, game.geometryVersion);
+  const h = harness(game, { fallUntil: 420 });
+  h.down(5);
+  h.move(5, 65, [20, 45, 65]);
+  h.frame();
+  assert.equal(game.verdict.winner, 0);
+  assert.equal(h.context.mode, 'transition');
+  assert.equal(h.context.surfacePress, null);
+  assert.deepEqual(h.resultReveals, []);
+  h.up(5, 80);
+  await new Promise(setImmediate);
+  assert.deepEqual(game.angles, game.verdict.snapshot.angles);
+  assert.equal(game.turn, 2);
+  assert.equal(h.context.session.recipient, 0);
+  assert.equal(h.resultReveals.length, 1);
+  assert.ok(h.resultReveals[0].time >= 420);
+});
+
+test('app AI: a decisive hidden exit skips the remaining move and the normal end of turn', async () => {
+  const game = emptyGame(0);
+  game.players[0].controller = 'ai';
+  game.faces[0].slots[4][0] = 2;
+  game.angles[4] = physicalAngleFor(0, 5, 0, OUTPUT_GATE - 25, game.geometryVersion);
+  const h = harness(game, { mode: 'ai-play', move: { wheel: 5, localDelta: 80 } });
+  await h.api.runAITurn();
+  assert.deepEqual(h.failures, []);
+  assert.equal(game.verdict.winner, 1);
+  assert.deepEqual(game.angles, game.verdict.snapshot.angles);
+  assert.equal(h.finished(), 0);
+  assert.equal(h.resultReveals.length, 1);
+  assert.equal(h.resultReveals[0].keepSound, true);
+  assert.equal(h.count('opponentFall'), 1);
+  assert.equal(h.count('stop'), 0);
 });

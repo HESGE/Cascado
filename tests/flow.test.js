@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createGame,rotate} from '../src/engine.js';
-import {newSession,revealTarget,recipientOf,transmit,acceptReveal,visibleTransfers} from '../src/flow.js';
+import {newSession,revealTarget,recipientOf,transmit,closeDecidedTurn,acceptReveal,visibleTransfers} from '../src/flow.js';
 
 test('une fin cachée ne se révèle pas en reprenant un tour non transmis',()=>{
   const s=newSession(createGame());
@@ -21,6 +21,35 @@ test('le passage conserve le destinataire et autorise le résultat après transm
   assert.equal(revealTarget(s),'result');
   assert.equal(acceptReveal(s),'result');
   assert.equal(s.phase,'revealed-result');
+});
+
+test('la clôture décisive compte le tour une fois et présente le résultat au joueur qui vient de jouer',()=>{
+  const s=newSession(createGame(['A','B'],1));
+  rotate(s.game,1,1);
+  s.game.verdict={winner:0,reason:'order'};
+
+  assert.equal(closeDecidedTurn(s),true);
+  assert.equal(s.game.turn,2);
+  assert.equal(s.game.engaged,null);
+  assert.equal(s.phase,'passed');
+  assert.equal(recipientOf(s),1);
+  assert.equal(revealTarget(s),'result');
+  assert.equal(closeDecidedTurn(s),false);
+
+  assert.equal(acceptReveal(s),'result');
+  assert.equal(s.phase,'revealed-result');
+  assert.equal(recipientOf(s),1);
+  assert.equal(closeDecidedTurn(s),false);
+  assert.equal(s.game.turn,2);
+});
+
+test('la clôture décisive laisse le joueur poursuivre une rotation ordinaire',()=>{
+  const s=newSession(createGame());
+  rotate(s.game,1,1);
+  assert.equal(closeDecidedTurn(s),false);
+  assert.equal(s.phase,'open');
+  assert.equal(s.game.engaged,1);
+  assert.equal(s.game.turn,1);
 });
 
 test('un résultat déjà annoncé ne rouvre aucun plateau jouable',()=>{

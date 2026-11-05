@@ -22,10 +22,19 @@ export function transmit(session) {
   return true;
 }
 
+/** Count the decisive turn while keeping the phone with the current player. */
+export function closeDecidedTurn(session) {
+  if (session.phase !== 'open' || !session.game.verdict) return false;
+  const actor = session.game.active;
+  if (!transmit(session)) return false;
+  session.recipient = actor;
+  return true;
+}
+
 export function acceptReveal(session) {
   const target = revealTarget(session);
   session.phase = target === 'result' ? 'revealed-result' : 'open';
-  session.recipient = session.game.active;
+  if (target === 'play') session.recipient = session.game.active;
   return target;
 }
 

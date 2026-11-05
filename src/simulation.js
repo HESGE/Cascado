@@ -5,6 +5,7 @@ import { configurePlayers, isAIPlayer, playerSettings } from './players.js';
 import { newSession, acceptReveal, transmit } from './flow.js';
 import { GEOMETRY_VERSION, SUPPORTED_GEOMETRY_VERSIONS, WHEELS } from './geometry.js';
 import { tokenTotal } from './tokens.js';
+import { isValidStartingTokens } from './starting-tokens.js';
 import { configureGameSet, isValidStartingPosition, ORIGINAL_START_MODE, MIROIR50_START_MODE,
   miroir50ScheduleEntry } from './starting-position.js';
 import { getGameSet, gameSetIdForGeometry, isValidGameSet } from './game-sets.js';
@@ -37,7 +38,7 @@ export function isSimulationSession(session) {
     if (tokens.length !== total || tokens.sort((a, b) => a - b).some((token, index) => token !== index + 1)) return false;
   }
   if (game.series !== undefined && (!seriesOf(game) || game.statsId !== seriesGameId(game.series))) return false;
-  if (!isValidStartingPosition(game)) return false;
+  if (!isValidStartingPosition(game) || !isValidStartingTokens(game)) return false;
   // Only an announced result is inspected: an open hidden verdict cannot
   // prevent the active AI from completing its normal turn.
   if (session.phase === 'revealed-result') {

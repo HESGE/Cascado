@@ -18,6 +18,7 @@ function validProgress(value, before, maxTurns) {
       session.game.starter !== before.game.starter ||
       session.game.simulationMode !== before.game.simulationMode ||
       JSON.stringify(session.game.startConfig) !== JSON.stringify(before.game.startConfig) ||
+      JSON.stringify(session.game.tokenStart) !== JSON.stringify(before.game.tokenStart) ||
       JSON.stringify(session.game.startingAngles) !== JSON.stringify(before.game.startingAngles) ||
       JSON.stringify(session.game.startingPose) !== JSON.stringify(before.game.startingPose) ||
       session.game.gameSetId !== before.game.gameSetId ||

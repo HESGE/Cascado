@@ -13,6 +13,7 @@ import { configureStartingPosition, normalizeStartConfig, ORIGINAL_START_MODE,
   miroir50RematchSeed, miroir50ScheduleEntry } from '../src/starting-position.js';
 import { GAME_SETS, getGameSet, gameSetIdForGeometry } from '../src/game-sets.js';
 import { loadHumanRoster, normalizeHumanName, mergeHumanNames, rememberHumanNames, removeHumanName } from '../src/player-roster.js';
+import { TOKEN_ORDERS, configureStartingTokens, tokenOrderMode } from '../src/starting-tokens.js';
 
 const source = await readFile(new URL('../src/app.js', import.meta.url), 'utf8');
 function between(start, end) {
@@ -71,6 +72,8 @@ function harness(saved = null, options = {}) {
     GAME_SETS, getGameSet, gameSetIdForGeometry, MIROIR50_START_MODE, randomMiroir50Seed, miroir50RematchSeed,
     gameSetPreference: options.setPreference ?? 'reference',
     gameStartPreference: options.gameStartPreference ?? ORIGINAL_START_MODE,
+    tokenOrderPreference: options.tokenOrderPreference ?? 'ordered',
+    TOKEN_ORDERS, configureStartingTokens, tokenOrderMode,
     humanRoster: fixtureRoster,
     normalizeHumanName, mergeHumanNames,
     rememberHumanNames: (roster, names, suppliedStorage = storage) => rememberHumanNames(roster, names, suppliedStorage),
@@ -122,6 +125,44 @@ function harness(saved = null, options = {}) {
     },
   };
 }
+
+test('shuffled token option gives both faces the same seeded lanes through normal setup', async () => {
+  const h = harness(null, { tokenOrderPreference: 'shuffled' });
+  h.prepare();
+  assert.equal(h.defaults().get('token-order'), 'shuffled');
+  await h.submit();
+  const game = h.context.session.game;
+  assert.equal(game.tokenStart.mode, 'shuffled');
+  assert.deepEqual(game.faces[0].queue, game.faces[1].queue);
+  assert.notEqual(game.faces[0].queue, game.faces[1].queue);
+  assert.notDeepEqual(game.faces[0].queue, [1,2,3,4,5,6,7,8,9,10]);
+  assert.deepEqual([...game.faces[0].queue].sort((a,b)=>a-b), [1,2,3,4,5,6,7,8,9,10]);
+  assert.deepEqual(game.startingAngles, ORIGINAL_START_ANGLES);
+});
+
+test('a shuffled rematch preserves its starting combination despite a changed Options preference', async () => {
+  const game = configureStartingPosition(createGame(['Camille','Léa']), { mode: ORIGINAL_START_MODE });
+  configureStartingTokens(game, 'shuffled', 123);
+  const original = [...game.faces[0].queue];
+  const h = harness(newSession(game), { tokenOrderPreference: 'ordered' });
+  h.prepare(true,true);
+  assert.equal(h.defaults().get('token-order'), 'shuffled');
+  await h.submit();
+  assert.deepEqual(h.context.session.game.faces[0].queue, original);
+  assert.deepEqual(h.context.session.game.faces[1].queue, original);
+  assert.equal(h.context.session.game.tokenStart.seed, 123);
+});
+
+test('an invalid token-order setup value leaves the saved game untouched', async () => {
+  const saved = newSession(createGame(['Camille','Léa']));
+  const before = structuredClone(saved);
+  const h = harness(saved);
+  h.prepare(true);
+  await h.submit({ 'token-order': 'unknown' });
+  assert.deepEqual(saved,before);
+  assert.equal(h.context.session,saved);
+  assert.deepEqual(h.saves,[]);
+});
 
 function sessionFor(mode, version = GEOMETRY_VERSION) {
   const game = configurePlayers(createGame(['Camille', 'Léa'], 0, version),

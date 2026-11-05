@@ -2,6 +2,7 @@ import { createGame } from './engine.js';
 import { configurePlayers, isAIPlayer } from './players.js';
 import { validStatisticsGame } from './statistics.js';
 import { configureGameSet, isValidStartingPosition, miroir50ScheduleEntry } from './starting-position.js';
+import { configureStartingTokens, isValidStartingTokens, tokenOrderMode } from './starting-tokens.js';
 import { SUPPORTED_GEOMETRY_VERSIONS } from './geometry.js';
 import { gameSetIdForGeometry, isValidGameSet } from './game-sets.js';
 
@@ -83,7 +84,7 @@ export function createNextSeriesGame(game) {
       game.statsId !== series.lastGameId || !validStatisticsGame(game) ||
       !SUPPORTED_GEOMETRY_VERSIONS.includes(game.geometryVersion) ||
       !isValidGameSet(game) ||
-      !isValidStartingPosition(game, series.round)) return null;
+      !isValidStartingPosition(game, series.round) || !isValidStartingTokens(game)) return null;
   series.round = series.completed + 1;
   const gameSetId = game.gameSetId ?? gameSetIdForGeometry(game.geometryVersion);
   const starterOffset = gameSetId === 'miroir-50'
@@ -100,5 +101,6 @@ export function createNextSeriesGame(game) {
   next.series = series;
   next.statsId = seriesGameId(series);
   configureGameSet(next, gameSetId, game.startConfig, series.round);
+  configureStartingTokens(next, tokenOrderMode(game), game.tokenStart?.seed ?? 1, series.round);
   return next;
 }

@@ -1,5 +1,7 @@
 # Cascado — V1
 
+**Version 1.52 — 5 novembre 2026.** Dans **Options → Ordre des jetons**, choisir **Classique — 1 à 5**, proposé par défaut, ou **Mélangés — mêmes deux faces**. Le mélange tire les numéros au sort séparément dans chaque file et donne exactement la même combinaison aux deux faces. Il faut toujours faire sortir les numéros de 1 à 5 dans chaque série. Une nouvelle partie reçoit un nouveau tirage. La reprise et la revanche ordinaire conservent la combinaison enregistrée. En série comparative, deux manches consécutives partagent un tirage, puis la paire suivante reçoit un nouveau tirage.
+
 La version **1.51** allège les neuf musiques et jingles MP3 de **52,3 à 44,1 Mo**, soit **15,6 %** de moins. Le réencodage LAME VBR qualité 4 conserve la stéréo et la fréquence de 48 kHz. Les durées décodées sont identiques à l’échantillon près.
 
 La version **1.50** ajoute le rendu en volume des règles. L’aperçu des règles utilise un modèle WebGL avec deux faces texturées, l’épaisseur du plateau et dix moyeux tronconiques en volume. Les moyeux dépassent de chaque face et se voient de profil pendant la rotation. Le calcul de profondeur masque les éléments situés derrière le plateau. La pause, le changement de face et la réduction des animations s’appliquent à cet aperçu décoratif, construit avec une partie de démonstration indépendante. Si WebGL est indisponible, l’illustration standard prend le relais. Le module local `src/rules-model-3d.js` est précaché pour le jeu hors ligne.
@@ -20,7 +22,7 @@ La version **1.41** place le **Set de jeu** et la **Position des roues au dépar
 
 La version **1.40** retire l’entrée « Duel automatique » de l’accueil et regroupe Statistiques, Partager, Installer et l’aide au son dans « Options ». Pour observer une partie entre deux IA, choisir IA pour les deux joueurs dans « Nouvelle partie ». Les règles proposent un aperçu lent en 3D des deux faces, avec pause et changement de face ; la préférence de réduction des animations est respectée. Les séries déjà sauvegardées et les outils de simulation restent disponibles.
 
-Version documentaire 1.51 · 5 novembre 2026
+Version documentaire 1.52 · 5 novembre 2026
 
 [Jouer à Cascado](https://hesge.github.io/Cascado/) · [Code source sur GitHub](https://github.com/HESGE/Cascado)
 
@@ -83,7 +85,7 @@ npm run dev
 
 Ouvrir `http://127.0.0.1:4173`. Le serveur est lié à l’ordinateur local. Le service worker fonctionne sur cette adresse de développement. Pour essayer la PWA sur un vrai téléphone, il faudra une adresse de test HTTPS accessible depuis celui-ci.
 
-Dans **Options**, choisir le **Set de jeu** et la **Position des roues au départ**. **Référence** propose **« Repères d’origine — estimés »**, par défaut, ou **« Ancien départ Cascado »**. **Miroir 50** utilise son lot de 50 positions : une pose est tirée au sort pour une nouvelle partie et sa complémentaire est proposée en revanche, avec l’autre joueur qui commence. Ces choix sont mémorisés pour les prochaines nouvelles parties ; ils ne modifient ni une reprise ni la configuration d’une revanche.
+Dans **Options**, choisir le **Set de jeu**, la **Position des roues au départ** et l’**Ordre des jetons**. **Référence** propose **« Repères d’origine — estimés »**, par défaut, ou **« Ancien départ Cascado »**. **Miroir 50** utilise son lot de 50 positions. Une pose est tirée au sort pour une nouvelle partie et sa complémentaire est proposée en revanche, avec l’autre joueur qui commence. Ces choix sont mémorisés pour les prochaines nouvelles parties. La reprise et la revanche utilisent leur configuration enregistrée.
 
 Dans **Nouvelle partie**, aucun sélecteur de set ou de départ n’apparaît. Pour chaque place, choisir **Humain** ou **IA**. Un humain peut sélectionner un prénom déjà connu ou en saisir un nouveau, limité à **20 caractères** ; les noms restent du texte simple. Lors de sa première initialisation, la liste mémorisée localement reprend les humains de la partie sauvegardée et des profils statistiques existants, sans renommer ces données. Cet import n’est pas répété lorsqu’une liste valide existe, même vide. Le dernier prénom humain choisi reste disponible après un passage en IA ou un rechargement. Les noms des IA ne sont pas ajoutés à cette liste : leurs noms sont automatiquement **IA 1** et **IA 2**, avec un niveau **Facile**, **Normal**, **Difficile** ou **Expert** pour chacune. Le premier joueur reste choisi explicitement. L’IA joue hors ligne et ne reçoit que sa propre face ; elle ne consulte ni les jetons adverses ni un verdict caché. Les sauvegardes sans type de contrôleur restent humain contre humain.
 
@@ -192,6 +194,7 @@ Le dossier `dist/` peut ensuite être servi depuis une racine ou un sous-chemin 
 | `src/statistics.js` | Agrégats des résultats révélés et regroupement des profils, sans jetons ni détail des coups |
 | `src/series.js` | Nombre de confrontations IA, alternance du premier joueur et bilan propre à la série sauvegardée |
 | `src/starting-position.js` | Poses reproductibles par graine, protocole θ / θ courant, complément réservé à `ddc-v1.4` et provenance sauvegardée |
+| `src/starting-tokens.js` | Ordre initial classique ou mélange identique sur les deux faces, reproductible par graine et paire de manches |
 | `src/simulation.js` | Tours et séries sans rendu, vrais moteur et IA, départs et choix de Facile reproductibles |
 | `src/simulation-worker.js` | Calcul local sans plateau par lots, borné à une partie |
 | `src/simulation-client.js` | Worker, validation des checkpoints, annulation et repli local sans worker |

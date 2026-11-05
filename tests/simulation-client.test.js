@@ -9,6 +9,7 @@ import { advanceSimulationBatch } from '../src/simulation-worker.js';
 import { configureStartingPosition, configureGameSet, startingAnglesFor } from '../src/starting-position.js';
 import { GEOMETRY_VERSION, LEGACY_GEOMETRY_VERSION, MIRROR_GEOMETRY_VERSION, SUPPORTED_GEOMETRY_VERSIONS } from '../src/geometry.js';
 import { tokenTotal } from '../src/tokens.js';
+import { configureStartingTokens } from '../src/starting-tokens.js';
 
 function session(geometryVersion = GEOMETRY_VERSION) {
   const game = configurePlayers(createGame(['IA 1', 'IA 2'], 0, geometryVersion), [
@@ -357,6 +358,27 @@ test('worker progress preserves reproducible starting metadata and rejects a coh
     assert.equal(await wait, null);
   }
   r.client.cancel();
+});
+
+test('worker progress keeps the shared token shuffle immutable', async () => {
+  const original = session();
+  configureStartingTokens(original.game,'shuffled',42);
+  const r = rig();
+  const pending = r.client.advance(original);
+  r.workers[0].reply(progressed(r.workers[0]));
+  assert.deepEqual((await pending).session.game.tokenStart, original.game.tokenStart);
+  r.client.cancel();
+  for (const mutate of [
+    game => { game.tokenStart.seed = 43; },
+    game => { delete game.tokenStart; },
+  ]) {
+    const alternate = rig();
+    const wait = alternate.client.advance(original);
+    const reply = progressed(alternate.workers[0]);
+    mutate(reply.session.game);
+    alternate.workers[0].reply(reply);
+    assert.equal(await wait,null);
+  }
 });
 
 test('worker progress cannot change an accepted mechanical profile', async () => {

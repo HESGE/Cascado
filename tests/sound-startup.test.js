@@ -7,6 +7,7 @@ import { DEFAULT_MUSIC_VOLUME, MUSIC_ENABLED_KEY, MUSIC_VOLUME_KEY } from '../sr
 import { createGame } from '../src/engine.js';
 import { GAME_SETS } from '../src/game-sets.js';
 import { ORIGINAL_START_MODE } from '../src/starting-position.js';
+import { TOKEN_ORDERS } from '../src/starting-tokens.js';
 
 const source = await readFile(new URL('../src/app.js', import.meta.url), 'utf8');
 function between(start, end) {
@@ -124,6 +125,7 @@ function harness(options = {}) {
     app, document, window, sound, SOUND_PREFERENCE_KEY, SOUND_VOLUME_KEY,
     MUSIC_ENABLED_KEY, MUSIC_VOLUME_KEY, musicEnabled: true, musicVolume: DEFAULT_MUSIC_VOLUME,
     GAME_SETS, ORIGINAL_START_MODE, gameSetPreference: 'reference', gameStartPreference: ORIGINAL_START_MODE,
+    TOKEN_ORDERS, tokenOrderPreference: 'ordered',
     escape: value => String(value),
     mode: options.mode ?? 'home', session: options.session ?? null,
     soundTestRequest: 0, soundTestTimer: null, soundTestCancel: null,

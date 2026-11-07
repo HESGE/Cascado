@@ -7,6 +7,7 @@ import {
   MIRROR_GEOMETRY_VERSION, MIRROR_FIVE_GEOMETRY_VERSION,
 } from './geometry.js';
 import { tokenSeries, tokenNumber, tokenTotal, queueLanes, nextBySeries } from './tokens.js';
+import { passableMouthInterval } from './openings.js';
 
 export const AI_LEVELS = Object.freeze([
   Object.freeze({ id: 'easy', label: 'Facile' }),
@@ -190,23 +191,97 @@ function candidates(state, legal, anticipate = false) {
   return targets;
 }
 
-function rankedMoves(state, legal, anticipate = false) {
-  const ranked = candidates(state, legal, anticipate).map(move => {
+// Quantized keys keep near-identical trajectories in a stable order.
+function compareRankedMoves(a, b) {
+  return Math.round(b.value / EPSILON) - Math.round(a.value / EPSILON)
+    || Math.round(Math.abs(a.delta) / EPSILON) - Math.round(Math.abs(b.delta) / EPSILON)
+    || a.wheel - b.wheel
+    || Math.round(a.delta / EPSILON) - Math.round(b.delta / EPSILON);
+}
+
+function rankedMoves(state, legal, anticipate = false, relay = false) {
+  const simulate = move => {
     const after = copyPosition(state);
     const accepted = rotate(after, move.wheel, move.delta, { stopOnVerdict: anticipate });
     return { ...move, after, value: accepted ? score(after, anticipate) : -Infinity };
-  }).filter(move => Math.abs(move.delta) >= 0.5 || move.after.events.some(event =>
-    event.transfers.some(transfer => transfer.face === state.active)))
-    // Quantized keys form a stable, transitive order. Sub-microdegree floating
-    // noise must not change which equally useful route enters the limited beam.
-    .sort((a, b) => Math.round(b.value / EPSILON) - Math.round(a.value / EPSILON)
-      || Math.round(Math.abs(a.delta) / EPSILON) - Math.round(Math.abs(b.delta) / EPSILON)
-      || a.wheel - b.wheel
-      || Math.round(a.delta / EPSILON) - Math.round(b.delta / EPSILON));
-  if (ranked.length) return ranked;
+  };
+  const ranked = candidates(state, legal, anticipate).map(simulate)
+    .filter(move => Math.abs(move.delta) >= 0.5 || ownTransfers(move.after, state.active).length)
+    .sort(compareRankedMoves);
+  if (ranked.length) return relay ? relayFinishes(state, ranked, simulate) : ranked;
   const after = copyPosition(state);
   rotate(after, legal[0], 6, { stopOnVerdict: anticipate });
   return [{ wheel: legal[0], delta: 6, after, value: score(after, anticipate) }];
+}
+
+function ownTransfers(state, owner) {
+  return state.events.flatMap(event => event.transfers).filter(transfer => transfer.face === owner);
+}
+
+function preparedFeed(state, wheel) {
+  const face = state.faces[state.active];
+  for (const gate of FACE_GATES[state.active]) {
+    if (gate.to !== wheel) continue;
+    const sourceSeat = face.slots[gate.from - 1].findIndex(token => token !== null);
+    if (sourceSeat < 0) continue;
+    if (face.slots[wheel - 1].some((token, notch) => token === null
+        && passableMouthInterval(wheel, phi(state, wheel, notch), gate.targetAngle) !== null)) {
+      return { gate, sourceSeat };
+    }
+  }
+  return null;
+}
+
+/** Revisit stops after a transfer opens a seat or puts a new pawn on the wheel.
+ * Probe at most two extensions per wheel and direction, at the root only. */
+function relayFinishes(state, ranked, simulate) {
+  const owner = state.active;
+  const prefixes = new Map();
+  for (const move of ranked) {
+    if (move.after.verdict || !Number.isFinite(move.value)) continue;
+    const transfers = ownTransfers(move.after, owner);
+    if (!transfers.some(transfer => transfer.from.wheel === move.wheel || transfer.to.wheel === move.wheel)) continue;
+    const key = `${move.wheel}:${Math.sign(move.delta)}`;
+    const previous = prefixes.get(key);
+    if (!previous || Math.abs(move.delta) < Math.abs(previous.delta)) prefixes.set(key, move);
+  }
+  for (const prefix of prefixes.values()) {
+    const { wheel } = prefix;
+    const beforeCount = ownTransfers(prefix.after, owner).length;
+    const extensions = candidates(prefix.after, [wheel])
+      .filter(move => Math.sign(move.delta) === Math.sign(prefix.delta))
+      .map(move => ({ wheel, delta: prefix.delta + move.delta }))
+      .filter(move => Math.abs(move.delta) <= 360 && !ranked.some(existing =>
+        existing.wheel === wheel && Math.abs(existing.delta - move.delta) < EPSILON))
+      .sort((a, b) => Math.abs(a.delta) - Math.abs(b.delta));
+    for (const extension of extensions.slice(0, 2)) {
+      // Replay the whole gesture, including any intermediate order verdict.
+      const move = simulate(extension);
+      if (move.value > -1e9 && (ownTransfers(move.after, owner).length > beforeCount
+          || (!move.after.verdict && preparedFeed(move.after, wheel)))) ranked.push(move);
+    }
+  }
+  for (const move of ranked) {
+    if (Math.abs(move.value) >= 1e9) continue;
+    const transfers = ownTransfers(move.after, owner);
+    if (!transfers.some(transfer => transfer.from.wheel === move.wheel || transfer.to.wheel === move.wheel)) continue;
+    const distinct = new Set(transfers.map(transfer => transfer.token)).size;
+    move.feed = preparedFeed(move.after, move.wheel);
+    move.value += distinct >= 2 ? 180 : move.feed ? 60 : 0;
+  }
+  return ranked.sort(compareRankedMoves);
+}
+
+function possibleOpponentFeed(move, owner) {
+  if (!move.feed) return false;
+  const { gate, sourceSeat } = move.feed;
+  const reply = copyPosition(move.after);
+  if (!endTurn(reply)) return false;
+  const angle = physicalAngleFor(owner, gate.from, sourceSeat, gate.sourceAngle, reply.geometryVersion);
+  const positive = normalizeAngle(angle - reply.angles[gate.from - 1]);
+  const delta = positive <= 180 ? positive : positive - 360;
+  return rotate(reply, gate.from, delta, { stopOnVerdict: true }) && reply.verdict?.reason !== 'order'
+    && ownTransfers(reply, owner).some(transfer => transfer.from.wheel === gate.from && transfer.to.wheel === gate.to);
 }
 
 function continuation(state, depth, beam, anticipate = false) {
@@ -223,6 +298,19 @@ function continuation(state, depth, beam, anticipate = false) {
     best = Math.max(best, projected - Math.abs(move.delta) * 0.003);
   }
   return best;
+}
+
+function entranceReleaseMoves(state, safeMoves) {
+  const face = state.faces[state.active];
+  const token = face.slots[0][0];
+  // The only pawn on the wheels occupies the entry shared by both queues.
+  // Take a transfer the engine can make now, before a shared rotation can
+  // close the passage again. Search still compares the viable trajectories.
+  if (token === null || !face.queue.length || face.slots.slice(1).some(slots => slots.some(id => id !== null))) {
+    return safeMoves;
+  }
+  const releases = safeMoves.filter(move => move.after.faces[state.active].slots[0][0] !== token);
+  return releases.length ? releases : safeMoves;
 }
 
 function defensiveValue(state, owner) {
@@ -479,13 +567,15 @@ export function chooseAIMove(view, level = 'normal', options = {}) {
   if (defensiveMode(view, level)) return chooseDefensiveMove(view, level, options);
   const anticipate = view.tokenOrder !== 'shuffled' && (level === 'hard' || level === 'expert')
     && (view.geometryVersion === GEOMETRY_VERSION || view.geometryVersion === MIRROR_GEOMETRY_VERSION);
+  const relay = anticipate && view.geometryVersion === GEOMETRY_VERSION;
   const config = level === 'expert' && (view.geometryVersion === MIRROR_GEOMETRY_VERSION
     || view.geometryVersion === MIRROR_FIVE_GEOMETRY_VERSION)
     ? MIRROR_EXPERT_CONFIG : CONFIG[level] ?? CONFIG.normal;
   const state = virtualGame(view);
-  const ranked = rankedMoves(state, legal, anticipate);
+  const ranked = rankedMoves(state, legal, anticipate, relay);
   const safe = ranked.filter(move => move.value > -1e9);
-  const pool = safe.length ? safe : ranked;
+  const preferred = relay ? entranceReleaseMoves(state, safe) : safe;
+  const pool = preferred.length ? preferred : ranked;
   let chosen;
   if (level === 'easy') {
     const random = typeof options.random === 'function' ? options.random : Math.random;
@@ -500,7 +590,9 @@ export function chooseAIMove(view, level = 'normal', options = {}) {
     for (const move of pool.slice(0, config.beam * 2)) {
       const projected = continuation(move.after, config.depth - 1, config.beam, anticipate);
       // A nearer gain beats the same gain delayed. Root safety always wins.
-      const value = projected * 0.85 + move.value * 0.15 - Math.abs(move.delta) * 0.003;
+      // A possible opponent-assisted transfer only breaks close ties.
+      const opportunity = relay && possibleOpponentFeed(move, view.faceIndex) ? 12 : 0;
+      const value = projected * 0.85 + move.value * 0.15 - Math.abs(move.delta) * 0.003 + opportunity;
       if (value > best + EPSILON) { best = value; chosen = move; }
     }
   }

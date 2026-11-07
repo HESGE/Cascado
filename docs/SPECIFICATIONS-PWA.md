@@ -1,8 +1,18 @@
 # Cascado — Spécifications de la PWA
 
-Version 1.58 · 7 novembre 2026 · Langue du produit : français
+Version 1.60 · 7 novembre 2026 · Langue du produit : français
 
 Statut : V1 développée à la demande de l’utilisateur le 28 octobre 2026. La version 1.23 retient **ddc-v1.5** pour les nouvelles parties : décalages estimés de la vidéo vers 298–299 s, deux entrées et deux séries de 1 à 5 sur chaque face. Ce gabarit ne prétend ni reproduire exactement le jeu filmé ni garantir l’équivalence des faces. La version 1.50 porte le seuil de passage à 26 unités libres sur 28. Les parties et séries déjà enregistrées en **ddc-v1.4** ou **ddc-v1.3** gardent leur calage, leur entrée unique et leurs cinq jetons. La version **1.28** rétablit les sons, ajoute un clic de cran à l’aimantation, renforce celle-ci et élargit la saisie autour des roues sans changer les règles de passage. Le glisser circulaire et l’alternative clavier sont conservés. Les preuves exécutées et essais restant à effectuer sont consignés dans la [fiche de recette](RECETTE-V1.md).
+
+### Préparation du transfert suivant — version 1.60
+
+Pour Référence à dix pions ordonnés, Difficile et Expert recalculent les cibles après une première rotation simulée qui fait avancer un pion sur la roue tournée. Pour chaque roue et sens, le préfixe le plus court est prolongé vers au plus deux arrêts utiles. La rotation complète garde le même sens, couvre au plus un tour et est rejouée depuis la position initiale avec arrêt au verdict. Le candidat apporte un transfert supplémentaire ou une réception prête pour un pion en amont. Ces simulations supplémentaires sont limitées à la sélection du coup courant.
+
+La sélection valorise le mouvement de deux jetons distincts avant une réception préparée. Sur les coups retenus, une rotation adverse de la roue en amont est simulée sur la projection propre. Si elle déclenche un transfert légal, la possibilité départage des coups proches. Les pions adverses restent hors de cette projection. La priorité de libération de l’entrée de la 1.59 et le moteur d’ordre restent applicables.
+
+### Libération de l’entrée commune — essai local 1.59
+
+Sur Référence à dix pions ordonnés, Difficile et Expert donnent la priorité à un transfert légal lorsque la roue 1 porte le seul pion présent sur les roues et qu’il reste des pions en file. Parmi les trajectoires déjà simulées et sans sortie hors ordre, la sélection conserve celles qui dégagent ce pion. Le moteur peut charger le suivant pendant la même rotation. Si le transfert est inaccessible, la recherche ordinaire choisit une préparation parmi les roues jouables. Ce choix repose sur la position propre actuelle et sur la simulation du mouvement.
 
 ### Anticipation en deux séries — version 1.58
 

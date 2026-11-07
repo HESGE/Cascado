@@ -191,7 +191,9 @@ test('Expert can load the other series while preserving the waiting predecessor'
     engaged: null, lastWheel: 5, allowedWheels: [1, 2, 3, 4] });
   const expert = gameFromOwnView(view);
   apply(expert, chooseAIMove(view, 'expert'));
-  assert.equal(expert.faces[0].slots[0][0], 7);
+  assert.ok(expert.events.some(event => event.transfers.some(transfer =>
+    transfer.face === 0 && transfer.token === 7 && transfer.from.queue && transfer.to.wheel === 1)),
+  'the other series loads even when the same gesture also advances its new pion');
   assert.equal(expert.faces[0].slots[1][2], 1);
   assert.equal(expert.verdict, null);
   assertOwnConservation(expert, 0);
@@ -234,6 +236,70 @@ test('Difficile loads the other series before the forbidden wheel is released', 
   assert.equal(game.faces[0].slots[0][0], 8);
   assert.equal(game.faces[0].slots[1][2], 2);
   assertProgressOrPreparation(game, move);
+});
+
+test('Référence at ten pions releases the sole occupied entrance when a real transfer is available', () => {
+  // Référence 1.58 validation, pose 8, turn 13. Green 1 occupied the
+  // entrance during ten consecutive own turns without a transfer.
+  const initial = gameFromOwnView({ faceIndex: 0, geometryVersion: GEOMETRY_VERSION,
+    angles: [60.56151032532847, 150.56151032532853, 53.230975101190324, 301.7014296695057, 284.145795494103],
+    queue: [1, 2, 3, 4, 5, 7, 8, 9, 10], exited: [],
+    slots: [[6], [null, null, null], [null, null], [null, null, null, null], [null, null, null, null, null]],
+    engaged: null, lastWheel: 3 });
+  const old = structuredClone(initial);
+  apply(old, { wheel: 4, localDelta: -36.50126578341042 });
+  assert.equal(old.faces[0].slots[0][0], 6, 'the recorded 1.58 preparation leaves the entry occupied');
+
+  for (const level of ['hard', 'expert']) {
+    const game = structuredClone(initial);
+    const move = chooseAIMove(freeze(getView(game, 0)), level);
+    apply(game, move);
+    assert.equal(game.faces[0].slots[0][0], null);
+    assert.ok(game.events.some(event => event.transfers.some(transfer =>
+      transfer.face === 0 && transfer.token === 6 && transfer.from.wheel === 1 && transfer.to.wheel === 2)));
+    assert.equal(game.verdict, null);
+    assertOwnConservation(game, 0);
+
+    const blocked = structuredClone(initial);
+    blocked.lastWheel = 2;
+    apply(blocked, chooseAIMove(freeze(getView(blocked, 0)), level));
+    assert.equal(blocked.faces[0].slots[0][0], 6, 'a forbidden receiver still requires a legal preparation');
+    assert.equal(blocked.verdict, null);
+    assertOwnConservation(blocked, 0);
+  }
+});
+
+test('Référence at ten pions can reload the entry in the same legal gesture that frees it', () => {
+  const initial = createGame(['A', 'B'], 0, GEOMETRY_VERSION);
+  initial.faces[1].queue = [];
+  initial.faces[0].queue = [2, 3, 4, 5, 6, 7, 8, 9, 10];
+  initial.faces[0].slots[0][0] = 1;
+  initial.angles = [165, 210.56151032532853, 0, 0, 0];
+  initial.lastWheel = 2;
+  const view = freeze(getView(initial, 0));
+
+  const old = structuredClone(initial);
+  apply(old, { wheel: 1, localDelta: -149.43848967467153 });
+  assert.equal(old.faces[0].slots[0][0], null, 'the 1.59 gesture stops after freeing the entry');
+  assert.equal(old.faces[0].slots[1][0], 1);
+
+  for (const level of ['hard', 'expert']) {
+    const game = structuredClone(initial);
+    const move = chooseAIMove(view, level);
+    apply(game, move);
+    assert.equal(move.wheel, 1);
+    const transfers = game.events.flatMap(event => event.transfers.filter(transfer => transfer.face === 0));
+    const first = transfers.findIndex(transfer => transfer.token === 1 && transfer.from.wheel === 1
+      && transfer.to.wheel === 2);
+    const reload = transfers.findIndex(transfer => transfer.from.queue && transfer.to.wheel === 1);
+    assert.ok(first >= 0 && reload > first, 'a second pion loads after the first leaves, during this same turn');
+    const fed = transfers[reload];
+    assert.equal(fed.token, view.queues[fed.from.lane][0]);
+    assert.equal(game.faces[0].slots[0][0], fed.token);
+    assert.equal(game.turn, 1);
+    assert.equal(game.verdict, null);
+    assertOwnConservation(game, 0);
+  }
 });
 
 test('Expert completes both full queues from unprepared angles through the real physics', () => {

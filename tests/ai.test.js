@@ -315,9 +315,9 @@ for (const face of [0, 1]) {
         assert.ok(copy.events.flatMap(event => event.transfers).some(transfer =>
           transfer.face === face && transfer.token === first && transfer.from.queue === true &&
           transfer.from.lane === lane && transfer.to.wheel === 1));
-        // The established levels stop at the entrance. Expert may continue its
-        // same legal rotation and carry the loaded token into the next wheel.
-        if (level !== 'expert') {
+        // Easy and Normal stop at the entrance. The stronger levels can keep
+        // rotating the same wheel and carry the loaded token farther.
+        if (level === 'easy' || level === 'normal') {
           assert.equal(copy.faces[face].slots[0][0], first);
           const local = getView(copy, face).angles[0];
           assert.ok(Math.abs(normalizeAngle(local - inputGates(game.geometryVersion)[lane])) < 1e-7);
@@ -338,7 +338,7 @@ for (const face of [0, 1]) {
       assert.equal(copy.verdict, null);
       assert.ok(copy.faces[face].slots.flat().includes(6));
       assert.deepEqual(copy.faces[face].queue, [7, 8, 9, 10]);
-      if (level !== 'expert') assert.equal(copy.faces[face].slots[0][0], 6);
+      if (level === 'easy' || level === 'normal') assert.equal(copy.faces[face].slots[0][0], 6);
       assert.equal(copy.faces[face].exited.length, 5);
     }
   });

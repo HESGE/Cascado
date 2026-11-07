@@ -1,5 +1,13 @@
 # Cascado — V1
 
+**Version 1.60 — 7 novembre 2026.** À dix pions dans l’ordre sur Référence, Difficile et Expert envisagent de prolonger une rotation après un transfert. Une encoche libérée peut recevoir le jeton suivant, et un jeton reçu peut avancer encore. Le moteur rejoue la trajectoire entière pour contrôler l’ordre. L’IA valorise les transferts de jetons distincts, les réceptions préparées et, avec un poids plus faible, une occasion de transfert sur une rotation adverse autorisée.
+
+Sur 100 duels Difficile contre la 1.59 figée, la nouvelle IA gagne 69–31, dont 34/50 en jouant deuxième contre 15/50 pour le témoin. Vingt-cinq départs inédits couvrent les quatre permutations de face et premier joueur. Les rotations propres qui font avancer au moins deux jetons distincts passent de 115 à 321. Les rotations adverses qui font avancer un jeton propre passent de 735 à 663. Les longues séquences d’au moins cinq tours sans transfert passent de 7 à 4 parties. Les cent parties se terminent par sortie complète et les traces sont vérifiées par rejeu. Sous WebKit au format iPhone 11, le worker fait partir un jeton et en charge un autre pendant le même tour, puis la partie reprend après rechargement.
+
+**Essai local 1.59 — 7 novembre 2026.** Sur Référence à dix pions dans l’ordre, Difficile et Expert profitent d’un transfert immédiat lorsqu’un seul pion occupe la roue d’entrée et retient les pions encore en file. Le moteur vérifie le transfert et l’ordre des sorties avant que la recherche compare les trajectoires qui dégagent l’entrée. Cette priorité évite de laisser à l’adversaire le temps de refermer un passage déjà praticable.
+
+Sur 100 duels Difficile contre la 1.58 figée, la nouvelle IA gagne 55–45, dont 28/50 en jouant deuxième contre 23/50 pour le témoin. Les 25 départs sont inédits et couvrent les quatre permutations de face et premier joueur. Les séquences d’au moins cinq tours du joueur sans transfert sur sa face apparaissent dans 2 parties contre 12, avec des maxima de 5 et 8. Sur le même lot historique de 52 parties contre la 1.57, la nouvelle version gagne 33–19 contre 32–20 pour la 1.58, et le nombre de longues séquences passe de 8 à 4. Les 152 parties se terminent par sortie complète. Les 984 tests actifs passent et le worker WebKit libère l’entrée sur la position de régression.
+
 **Version 1.58 — 7 novembre 2026.** En dix pions dans l’ordre, Difficile et Expert préparent les passages en tenant compte du prochain numéro de chacune des deux séries. Ils estiment les rotations nécessaires et les réceptions libres jusqu’à la sortie. Si la roue interdite bloque une série, la sélection peut inclure la préparation d’un récepteur en aval. Le calcul utilise la recherche du format dix pions et les observations de sa propre face.
 
 Le réglage retient la priorité historique aux sorties et applique un poids modéré aux préparations. Sur 104 duels Difficile contre la 1.57 figée, avec 13 départs inédits par set et quatre permutations par départ, la nouvelle IA gagne 32–20 en Référence et 31–21 sur Miroir 50. Les 104 traces ont été rejouées. Il y a 103 sorties complètes et une erreur d’ordre de la 1.57. En jouant deuxième, la nouvelle gagne 27/52 contre 16/52. Les séquences d’au moins cinq tours du joueur sans transfert sur sa face passent de 0 à 8 en Référence et de 5 à 1 sur Miroir 50. La latence médiane sous charge passe d’environ 97 à 102 ms. Les 983 tests actifs et les quatre parcours Chromium/WebKit passent.
@@ -54,7 +62,7 @@ La version **1.41** place le **Set de jeu** et la **Position des roues au dépar
 
 La version **1.40** retire l’entrée « Duel automatique » de l’accueil et regroupe Statistiques, Partager, Installer et l’aide au son dans « Options ». Pour observer une partie entre deux IA, choisir IA pour les deux joueurs dans « Nouvelle partie ». Les règles proposent un aperçu lent en 3D des deux faces, avec pause et changement de face ; la préférence de réduction des animations est respectée. Les séries déjà sauvegardées et les outils de simulation restent disponibles.
 
-Version documentaire 1.58 · 7 novembre 2026
+Version documentaire 1.60 · 7 novembre 2026
 
 [Jouer à Cascado](https://hesge.github.io/Cascado/) · [Code source sur GitHub](https://github.com/HESGE/Cascado)
 

@@ -295,3 +295,39 @@ test('IndexedDB: legacy totals survive and Miroir 50 saves retain pool provenanc
   assert.deepEqual(result.reset.gameSets, []);
   assert.deepEqual(result.afterReplay, result.reset);
 });
+
+test('IndexedDB: One Piece restores the locked wheel and both independent Coup de vent uses', { skip: !baseURL }, async () => {
+  const result = await page.evaluate(async () => {
+    const { loadGame, saveGame } = await import('/src/storage.js');
+    const { createGame, getView, rotate, setGustArmed } = await import('/src/engine.js');
+    const { newSession, transmit, acceptReveal } = await import('/src/flow.js');
+    const session = newSession(createGame(['Luffy', 'Law'], 0, undefined, { gameMode: 'one-piece' }));
+    rotate(session.game, 3, 10);
+    transmit(session);
+    acceptReveal(session);
+    setGustArmed(session.game, true);
+    await saveGame(session);
+
+    const armed = await loadGame();
+    const beforeRotation = getView(armed.game, 1).gust;
+    const rotated = rotate(armed.game, 3, 20);
+    transmit(armed);
+    await saveGame(armed);
+
+    const resumed = await loadGame();
+    return {
+      beforeRotation, rotated,
+      phase: resumed.phase, recipient: resumed.recipient,
+      gameMode: resumed.game.gameMode,
+      luffy: getView(resumed.game, 0).gust,
+      law: getView(resumed.game, 1).gust,
+    };
+  });
+  assert.deepEqual(result, {
+    beforeRotation: { remaining: 1, armed: true, blockedWheel: 3 },
+    rotated: true,
+    phase: 'passed', recipient: 0, gameMode: 'one-piece',
+    luffy: { remaining: 1, armed: false, blockedWheel: 3 },
+    law: { remaining: 0, armed: false, blockedWheel: null },
+  });
+});

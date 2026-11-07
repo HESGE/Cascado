@@ -1,5 +1,7 @@
 # Cascado — V1
 
+**Version 1.61 — 7 novembre 2026.** Le bouton One Piece ouvre directement le choix des personnages. Les huit gentils sont à gauche, les huit méchants à droite. Chaque joueur peut être confié à une IA dont le niveau se règle dans la préparation. Chaque joueur dispose d’un Coup de vent pour tourner une fois la roue bloquée. La carte de Grand Line, les portraits et la partie restent accessibles hors ligne après le chargement du jeu.
+
 **Version 1.60 — 7 novembre 2026.** À dix pions dans l’ordre sur Référence, Difficile et Expert envisagent de prolonger une rotation après un transfert. Une encoche libérée peut recevoir le jeton suivant, et un jeton reçu peut avancer encore. Le moteur rejoue la trajectoire entière pour contrôler l’ordre. L’IA valorise les transferts de jetons distincts, les réceptions préparées et, avec un poids plus faible, une occasion de transfert sur une rotation adverse autorisée.
 
 Sur 100 duels Difficile contre la 1.59 figée, la nouvelle IA gagne 69–31, dont 34/50 en jouant deuxième contre 15/50 pour le témoin. Vingt-cinq départs inédits couvrent les quatre permutations de face et premier joueur. Les rotations propres qui font avancer au moins deux jetons distincts passent de 115 à 321. Les rotations adverses qui font avancer un jeton propre passent de 735 à 663. Les longues séquences d’au moins cinq tours sans transfert passent de 7 à 4 parties. Les cent parties se terminent par sortie complète et les traces sont vérifiées par rejeu. Sous WebKit au format iPhone 11, le worker fait partir un jeton et en charge un autre pendant le même tour, puis la partie reprend après rechargement.
@@ -62,7 +64,7 @@ La version **1.41** place le **Set de jeu** et la **Position des roues au dépar
 
 La version **1.40** retire l’entrée « Duel automatique » de l’accueil et regroupe Statistiques, Partager, Installer et l’aide au son dans « Options ». Pour observer une partie entre deux IA, choisir IA pour les deux joueurs dans « Nouvelle partie ». Les règles proposent un aperçu lent en 3D des deux faces, avec pause et changement de face ; la préférence de réduction des animations est respectée. Les séries déjà sauvegardées et les outils de simulation restent disponibles.
 
-Version documentaire 1.60 · 7 novembre 2026
+Version documentaire 1.61 · 7 novembre 2026
 
 [Jouer à Cascado](https://hesge.github.io/Cascado/) · [Code source sur GitHub](https://github.com/HESGE/Cascado)
 

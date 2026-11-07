@@ -81,6 +81,31 @@ test('AI client: a module worker receives only an immutable face projection', as
   assert.equal(r.timers.size, 0);
 });
 
+test('AI client: the worker receives its own Coup de vent and can request it for the locked wheel', async () => {
+  const r = rig();
+  const original = {
+    ...view(),
+    gameMode: 'one-piece',
+    lastWheel: 5,
+    allowedWheels: [1, 2, 3, 4],
+    gust: { remaining: 1, armed: false, blockedWheel: 5, otherFace: 'private' },
+  };
+  const pending = r.client.choose(original, 'hard');
+  const worker = r.workers[0];
+  assert.equal(worker.message.view.gameMode, 'one-piece');
+  assert.deepEqual(worker.message.view.gust, { remaining: 1, armed: false, blockedWheel: 5 });
+  original.gust.remaining = 0;
+  const gustMove = { wheel: 5, localDelta: 25, useGust: true };
+  worker.reply(gustMove);
+  assert.deepEqual(await pending, gustMove);
+
+  const spent = r.client.choose(original, 'hard');
+  r.workers[1].reply(gustMove);
+  r.fire(0);
+  assert.deepEqual(await spent, move);
+  assert.equal(r.fallbackCalls.length, 1);
+});
+
 test('AI client: overlapping requests resolve the old one and ignore its late callback', async () => {
   const r = rig();
   const first = r.client.choose(view(), 'easy');

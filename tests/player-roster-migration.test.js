@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import vm from 'node:vm';
 import { readFile } from 'node:fs/promises';
-import { createGame } from '../src/engine.js';
+import { createGame, ONE_PIECE_MODE } from '../src/engine.js';
 import { newSession } from '../src/flow.js';
 import { configurePlayers, playerSettings } from '../src/players.js';
 import { loadHumanRoster, mergeHumanNames, rememberHumanNames, hasStoredHumanRoster, removeHumanName } from '../src/player-roster.js';
@@ -25,7 +25,7 @@ function bootHarness({ saved = null, statistics = { profiles: [] }, statisticsEr
   const calls = { loadGame: 0, loadStatistics: 0, rosterWrites: 0, mask: 0, home: 0, pwa: 0, persist: [], failures: [] };
   const app = { dataset: {} };
   const context = vm.createContext({
-    app, session: null, storageReady: false,
+    app, session: null, storageReady: false, ONE_PIECE_MODE,
     humanRoster: loadHumanRoster(storage), playerSettings, mergeHumanNames,
     hasStoredHumanRoster: (suppliedStorage = storage) => hasStoredHumanRoster(suppliedStorage),
     rememberHumanNames: (roster, names) => rememberHumanNames(roster, names, storage),
@@ -49,6 +49,16 @@ function mixedLegacySave() {
   delete game.players[0].controller;
   return newSession(game);
 }
+
+test('startup keeps characters from a One Piece save out of the classic roster', async () => {
+  const game = createGame(['Nami', 'Zoro'], 0, undefined, { gameMode: ONE_PIECE_MODE });
+  game.characters = ['nami', 'zoro'];
+  const h = bootHarness({ saved: newSession(game) });
+  await h.boot();
+  assert.deepEqual(JSON.parse(h.preferences.get(KEY)).names, []);
+  assert.equal(h.calls.mask, 1);
+  assert.deepEqual(h.calls.failures, []);
+});
 
 test('startup persists human names from saved game and statistics while excluding AI profiles', async () => {
   const saved = mixedLegacySave(), originalSave = structuredClone(saved);

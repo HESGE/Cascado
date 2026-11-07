@@ -1,4 +1,4 @@
-import { createGame, rotate, getView, allowedWheels, upgradeGameGeometry } from './engine.js';
+import { createGame, rotate, getView, allowedWheels, upgradeGameGeometry, ONE_PIECE_MODE, setGustArmed } from './engine.js';
 import { renderBoard, wheelCenter, seriesAppearance } from './board.js';
 import { rulesPreviewMarkup, setupRulesPreview } from './rules-preview.js';
 import { wheelRestrictionMessage } from './wheel-rule.js';
@@ -55,6 +55,32 @@ const HOLD_DELAY = 250;
 const REPEAT_INTERVAL = 100;
 const escape = value => String(value).replace(/[&<>"']/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
 const brand = '<div class="brand">CASCADO</div>';
+const onePieceBrand = '<div class="one-piece-masthead"><strong>ONE PIECE</strong><span>Cap sur Grand Line</span></div>';
+const strawHats = 'Équipage du Chapeau de paille';
+const ONE_PIECE_CAST = new Map([
+  ['luffy', { name: 'Luffy', crew: strawHats }],
+  ['zoro', { name: 'Zoro', crew: strawHats }],
+  ['nami', { name: 'Nami', crew: strawHats }],
+  ['sanji', { name: 'Sanji', crew: strawHats }],
+  ['chopper', { name: 'Chopper', crew: strawHats }],
+  ['robin', { name: 'Robin', crew: strawHats }],
+  ['law', { name: 'Law', crew: 'Équipage du Heart' }],
+  ['ace', { name: 'Ace', crew: 'Équipage de Barbe Blanche' }],
+  ['crocodile', { name: 'Crocodile', crew: 'Baroque Works', villain: true }],
+  ['baggy', { name: 'Baggy', crew: 'Équipage de Baggy', villain: true }],
+  ['arlong', { name: 'Arlong', crew: 'Équipage d’Arlong', villain: true }],
+  ['doflamingo', { name: 'Doflamingo', crew: 'Équipage de Don Quichotte', villain: true }],
+  ['ener', { name: 'Ener', crew: 'Skypiea', villain: true }],
+  ['barbe-noire', { name: 'Barbe Noire', crew: 'Équipage de Barbe Noire', villain: true }],
+  ['kaido', { name: 'Kaido', crew: 'Équipage des Cent Bêtes', villain: true }],
+  ['big-mom', { name: 'Big Mom', crew: 'Équipage de Big Mom', villain: true }],
+]);
+const defaultCharacters = ['luffy', 'law'];
+function characterId(game, seat) {
+  const id = game?.characters?.[seat];
+  return ONE_PIECE_CAST.has(id) ? id : defaultCharacters[seat];
+}
+const captain = id => `<span class="one-piece-captain" data-character="${id}" aria-hidden="true"></span>`;
 let session = null;
 let mode = 'loading';
 let selected = null;
@@ -255,10 +281,16 @@ function renderHome() {
     <p class="eyebrow">UN TÉLÉPHONE · HUMAINS OU IA</p>
     <h1>À chacun<br>son côté.</h1>
     <p>Tournez les roues. Faites sortir vos pions de 1 à 5 dans l’ordre de chaque série. Gardez votre plateau pour vous.</p>
-    <div class="actions">${session ? '<button class="primary" data-action="resume">Reprendre la partie</button>' : ''}<button class="${session ? 'secondary' : 'primary'}" data-action="new">Nouvelle partie</button><button class="secondary" data-action="rules">Comment jouer</button><button class="secondary" data-action="options">Options</button></div>
+    <div class="actions">
+      ${session ? '<button class="primary" data-action="resume">Reprendre la partie</button>' : ''}
+      <button class="${session ? 'secondary' : 'primary'}" data-action="new">Nouvelle partie</button>
+      <button class="secondary" data-action="one-piece">One Piece</button>
+      <button class="secondary" data-action="rules">Comment jouer</button>
+      <button class="secondary" data-action="options">Options</button>
+    </div>
     <div class="install-status" id="install-status">${offlineStatus()}</div>
     ${updateAvailable ? '<button class="secondary" data-action="update">Une mise à jour est disponible</button>' : ''}
-    <p class="muted local-note">Sans compte · Partie enregistrée sur cet appareil<br><span data-release>Version 1.60</span></p></section>`;
+    <p class="muted local-note">Sans compte · Partie enregistrée sur cet appareil<br><span data-release>Version 1.61</span></p></section>`;
 }
 
 function renderOptions() {
@@ -537,11 +569,11 @@ function offlineStatus() {
   return cacheReady ? '● Prêt hors ligne' : ('serviceWorker' in navigator ? 'Préparation du jeu hors ligne…' : 'Mode navigateur');
 }
 
-function prepare(replace = false, rematch = false, automatic = false) {
+function prepare(replace = false, rematch = false, automatic = false, initialMode = 'classic') {
   stopMotion();
   mode = 'preparation';
   const names = [0, 1].map(index => {
-    const previous = session?.game.players[index];
+    const previous = session?.game.gameMode === ONE_PIECE_MODE ? null : session?.game.players[index];
     const savedName = previous && playerSettings(previous).controller === 'human' ? normalizeHumanName(previous.name) : null;
     return (humanRoster.names.includes(savedName) ? savedName : null) || humanRoster.lastNames[index] || '';
   });
@@ -556,40 +588,132 @@ function prepare(replace = false, rematch = false, automatic = false) {
   const setId = rematch ? gameSetIdForGeometry(session.game.geometryVersion) : gameSetPreference;
   const tokenOrder = rematch ? tokenOrderMode(session.game) : tokenOrderPreference;
   const tokenCount = rematch ? tokenTotal(session.game.geometryVersion) : tokenCountPreference;
+  const pirateRematch = rematch && session.game.gameMode === ONE_PIECE_MODE;
+  const pirateSetup = !automatic && (pirateRematch || initialMode === ONE_PIECE_MODE);
+  const characters = [0, 1].map(index => characterId(pirateRematch ? session.game : null, index));
+  const classicIntro = 'Choisis un nom enregistré ou crée-en un nouveau. Les noms restent sur cet appareil.';
+  const pirateIntro = 'Choisis un personnage pour chaque joueur, humain ou IA.';
+  const modeField = automatic ? '' : `<label class="field"><span>Mode de jeu</span><select name="game-mode" aria-describedby="game-mode-help"><option value="classic" ${pirateSetup ? '' : 'selected'}>Cascado classique</option><option value="${ONE_PIECE_MODE}" ${pirateSetup ? 'selected' : ''}>One Piece · Cap sur Grand Line</option></select></label><p id="game-mode-help" class="muted" ${pirateSetup ? '' : 'hidden'}>10 pions dans l’ordre. Une fois par partie, chaque joueur peut utiliser le Coup de vent pour tourner la roue bloquée.</p>`;
+  const characterGrids = [
+    { label: 'Gentils', villain: false },
+    { label: 'Méchants', villain: true },
+  ].map(({ label, villain }) => {
+    const tiles = [...ONE_PIECE_CAST].filter(([, character]) => Boolean(character.villain) === villain)
+      .map(([id, { name }]) =>
+        `<button type="button" class="character-tile" data-character-choice="${id}" aria-pressed="false">${captain(id)}<span>${name}</span><small data-assigned-seat hidden></small></button>`).join('');
+    return `<section class="character-faction"><h3>${label}</h3><div class="character-grid" role="group" data-character-faction="${label}" aria-label="${label} · Joueur 1">${tiles}</div></section>`;
+  }).join('');
+  const characterPickerMarkup = automatic ? '' : `<section class="character-picker" data-character-picker aria-labelledby="character-picker-title" ${pirateSetup ? '' : 'hidden'}>
+    <h2 id="character-picker-title" tabindex="-1">Choisis les personnages</h2>
+    <p class="character-picker-help">Choisis le portrait du joueur 1, puis celui du joueur 2.</p>
+    <div class="character-seats" role="group" aria-label="Joueur à attribuer">${characters.map((id, index) =>
+      `<div class="character-seat-controls">
+        <button type="button" class="character-seat" data-character-seat="${index}" aria-pressed="${index === 0}"><span>Joueur ${index + 1}</span><strong>${ONE_PIECE_CAST.get(id).name}</strong></button>
+        <label class="character-ai"><input type="checkbox" data-character-ai="${index}" aria-label="IA du joueur ${index + 1}" ${settings[index].controller === 'ai' ? 'checked' : ''}><span>IA</span></label>
+      </div>`).join('')}</div>
+    <div class="character-factions">${characterGrids}</div>
+    ${characters.map((id, index) => `<input type="hidden" name="character${index + 1}" value="${id}" ${pirateSetup ? '' : 'disabled'}>`).join('')}
+  </section>`;
   const fields = [0, 1].map(index => {
     const seat = index + 1;
     const config = settings[index];
     const knownIndex = humanRoster.names.indexOf(names[index]);
-    return `<fieldset class="player-setup" data-player-seat="${seat}"><legend>${index ? '◆' : '●'} Joueur ${seat}</legend>
-      ${automatic ? `<input type="hidden" name="controller${seat}" value="ai">` : `<label class="field"><span>Joueur ${seat}</span><select name="controller${seat}"><option value="human" ${config.controller === 'human' ? 'selected' : ''}>Humain</option><option value="ai" ${config.controller === 'ai' ? 'selected' : ''}>IA</option></select></label>
-      <div class="human-name-fields" data-human-fields ${config.controller === 'ai' ? 'hidden' : ''}>
-        <div class="field"><label for="saved-name${seat}">Nom du joueur ${seat}</label><div class="name-choice-row"><select id="saved-name${seat}" name="saved-name${seat}" ${config.controller === 'ai' ? 'disabled' : ''}>${humanRoster.names.map((name, position) => `<option value="${position}" ${position===knownIndex ? 'selected' : ''}>${escape(name)}</option>`).join('')}<option value="new" ${knownIndex<0 ? 'selected' : ''}>Créer un nouveau nom…</option></select><button type="button" class="forget-name" data-remove-name ${knownIndex<0 ? 'hidden' : ''} aria-label="${escape(`Supprimer le nom mémorisé ${names[index]}`)}" title="Supprimer ce nom de la liste"><span aria-hidden="true">×</span></button></div></div>
-        <label class="field" data-new-name ${knownIndex<0 ? '' : 'hidden'}><span>Nouveau nom du joueur ${seat}</span><input name="player${seat}" autocomplete="off" maxlength="20" ${knownIndex<0 && config.controller==='human' ? 'required' : 'disabled'} value="${escape(names[index])}"></label>
+    const showNames = config.controller === 'human' && !pirateSetup;
+    return `<fieldset class="player-setup" data-player-seat="${seat}" ${pirateSetup && config.controller !== 'ai' ? 'hidden' : ''}><legend>${index ? '◆' : '●'} Joueur ${seat}</legend>
+      ${automatic ? `<input type="hidden" name="controller${seat}" value="ai">` : `<label class="field" data-controller-field ${pirateSetup ? 'hidden' : ''}><span>Joueur ${seat}</span><select name="controller${seat}"><option value="human" ${config.controller === 'human' ? 'selected' : ''}>Humain</option><option value="ai" ${config.controller === 'ai' ? 'selected' : ''}>IA</option></select></label>
+      <div class="human-name-fields" data-human-fields ${showNames ? '' : 'hidden'}>
+        <div class="field"><label for="saved-name${seat}">Nom du joueur ${seat}</label><div class="name-choice-row"><select id="saved-name${seat}" name="saved-name${seat}" ${showNames ? '' : 'disabled'}>${humanRoster.names.map((name, position) => `<option value="${position}" ${position===knownIndex ? 'selected' : ''}>${escape(name)}</option>`).join('')}<option value="new" ${knownIndex<0 ? 'selected' : ''}>Créer un nouveau nom…</option></select><button type="button" class="forget-name" data-remove-name ${knownIndex<0 ? 'hidden' : ''} aria-label="${escape(`Supprimer le nom mémorisé ${names[index]}`)}" title="Supprimer ce nom de la liste"><span aria-hidden="true">×</span></button></div></div>
+        <label class="field" data-new-name ${knownIndex<0 ? '' : 'hidden'}><span>Nouveau nom du joueur ${seat}</span><input name="player${seat}" autocomplete="off" maxlength="20" ${knownIndex<0 && showNames ? 'required' : 'disabled'} value="${escape(names[index])}"></label>
       </div>`}
       <label class="field ai-level" ${config.controller === 'ai' ? '' : 'hidden'}><span>Niveau de l’IA ${seat}</span><select name="level${seat}" ${config.controller === 'ai' ? '' : 'disabled'}>${AI_LEVELS.map(level => `<option value="${level.id}" ${config.level === level.id ? 'selected' : ''}>${level.label}</option>`).join('')}</select></label></fieldset>`;
   }).join('');
-  app.innerHTML = `<section class="screen preparation${automatic ? ' is-automatic' : ''}">${brand}<p class="eyebrow">${rematch ? 'REVANCHE' : automatic ? 'IA CONTRE IA' : 'NOUVELLE PARTIE'}</p><h1>${automatic ? 'Duel automatique' : 'Qui joue ?'}</h1><p>${automatic ? 'Choisis les niveaux, le nombre de parties et l’affichage. Les IA enchaînent les confrontations, puis affichent leur bilan.' : 'Choisis un nom enregistré ou crée-en un nouveau. Les noms restent sur cet appareil.'}</p>
-    <form id="setup"><input type="hidden" name="game-set" value="${setId}"><input type="hidden" name="start-mode" value="${startMode}"><input type="hidden" name="token-order" value="${tokenOrder}"><input type="hidden" name="token-count" value="${tokenCount}">${automatic ? `<div class="automatic-levels">${fields}</div>` : fields}${automatic ? `<div class="series-count-field"><label class="field"><span>Nombre de parties</span><input type="number" name="series-count" inputmode="numeric" min="1" max="1000" step="1" required value="${seriesTarget}" aria-describedby="series-count-help"></label><div class="series-presets" role="group" aria-label="Nombre de parties proposé">${[10,50,100].map(count => `<button class="secondary" type="button" data-action="series-preset" data-count="${count}" aria-pressed="${seriesTarget===count}">${count} parties</button>`).join('')}</div><p id="series-count-help" class="muted">De 1 à 1 000 parties. Garde le jeu ouvert pour calculer.</p><label class="field"><span>Affichage</span><select name="simulation-mode" aria-describedby="simulation-mode-help"><option value="headless" ${simulationMode==='headless' ? 'selected' : ''}>Sans plateau — simulation rapide</option><option value="board" ${simulationMode==='board' ? 'selected' : ''}>Avec le plateau</option></select></label><p id="simulation-mode-help" class="muted">Sans plateau, les IA calculent à pleine vitesse. Seuls les scores et l’avancement sont affichés.</p></div>` : ''}<div data-setup-speed ${settings.some(config => config.controller === 'ai') && (!automatic || simulationMode !== 'headless') ? '' : 'hidden'}>${speedSlot()}</div>
+  app.innerHTML = `<section class="screen preparation${automatic ? ' is-automatic' : ''}">${brand}<p class="eyebrow">${rematch ? 'REVANCHE' : automatic ? 'IA CONTRE IA' : 'NOUVELLE PARTIE'}</p><h1>${automatic ? 'Duel automatique' : 'Qui joue ?'}</h1><p data-setup-intro>${automatic ? 'Choisis les niveaux, le nombre de parties et l’affichage. Les IA enchaînent les confrontations, puis affichent leur bilan.' : pirateSetup ? pirateIntro : classicIntro}</p>
+    <form id="setup"><input type="hidden" name="game-set" value="${setId}"><input type="hidden" name="start-mode" value="${startMode}"><input type="hidden" name="token-order" value="${tokenOrder}"><input type="hidden" name="token-count" value="${tokenCount}">${modeField}${characterPickerMarkup}${automatic ? `<div class="automatic-levels">${fields}</div>` : fields}${automatic ? `<div class="series-count-field"><label class="field"><span>Nombre de parties</span><input type="number" name="series-count" inputmode="numeric" min="1" max="1000" step="1" required value="${seriesTarget}" aria-describedby="series-count-help"></label><div class="series-presets" role="group" aria-label="Nombre de parties proposé">${[10,50,100].map(count => `<button class="secondary" type="button" data-action="series-preset" data-count="${count}" aria-pressed="${seriesTarget===count}">${count} parties</button>`).join('')}</div><p id="series-count-help" class="muted">De 1 à 1 000 parties. Garde le jeu ouvert pour calculer.</p><label class="field"><span>Affichage</span><select name="simulation-mode" aria-describedby="simulation-mode-help"><option value="headless" ${simulationMode==='headless' ? 'selected' : ''}>Sans plateau — simulation rapide</option><option value="board" ${simulationMode==='board' ? 'selected' : ''}>Avec le plateau</option></select></label><p id="simulation-mode-help" class="muted">Sans plateau, les IA calculent à pleine vitesse. Seuls les scores et l’avancement sont affichés.</p></div>` : ''}<div data-setup-speed ${settings.some(config => config.controller === 'ai') && (!automatic || simulationMode !== 'headless') ? '' : 'hidden'}>${speedSlot()}</div>
     ${automatic ? `<input type="hidden" name="starter" value="${starter}"><p class="automatic-start">IA ${starter+1} commence, puis le premier joueur alterne à chaque partie. Tu peux mettre la série en pause.</p>` : `<label class="field"><span>Premier joueur</span><select name="starter"><option value="0" ${starter === 0 ? 'selected' : ''}>Joueur 1</option><option value="1" ${starter === 1 ? 'selected' : ''}>Joueur 2</option></select></label>`}
     <p class="muted roster-status" id="roster-status" role="status" aria-live="polite" hidden></p>
     ${replace ? '<p class="replacement-note">Démarrer remplacera la partie enregistrée sur cet appareil.</p>' : ''}
     <button class="primary" type="submit">${automatic ? (replace ? 'Remplacer et lancer' : 'Lancer la série') : replace ? 'Remplacer et commencer' : 'Commencer la partie'}</button></form>
     <button class="secondary" data-action="home">Retour</button></section>`;
   globalThis.window?.scrollTo?.(0, 0);
-  app.querySelectorAll('select[name^="controller"]').forEach(control => control.addEventListener('change', () => {
-    const group = control.closest('fieldset');
-    const field = group.querySelector('.ai-level');
-    field.hidden = control.value !== 'ai';
-    field.querySelector('select').disabled = field.hidden;
-    const human = control.value === 'human';
-    group.querySelector('[data-human-fields]').hidden = !human;
-    const choice = group.querySelector('select[name^="saved-name"]');
-    const input = group.querySelector('input[name^="player"]');
-    choice.disabled = !human;
-    input.disabled = !human || choice.value !== 'new';
-    input.required = !input.disabled;
-    app.querySelector('[data-setup-speed]').hidden = ![...app.querySelectorAll('select[name^="controller"]')].some(select => select.value === 'ai');
+  const gameModeControl = app.querySelector('[name="game-mode"]');
+  const controllerFields = [...app.querySelectorAll('select[name^="controller"]')];
+  const characterPicker = app.querySelector('[data-character-picker]');
+  const aiToggles = [...app.querySelectorAll('[data-character-ai]')];
+  let characterSeat = 0;
+  const syncPlayers = () => {
+    const pirate = gameModeControl.value === ONE_PIECE_MODE;
+    controllerFields.forEach((control, index) => {
+      const aiPlayer = control.value === 'ai';
+      aiToggles[index].checked = aiPlayer;
+      const group = control.closest('fieldset');
+      group.hidden = pirate && !aiPlayer;
+      group.querySelector('[data-controller-field]').hidden = pirate;
+      const field = group.querySelector('.ai-level');
+      field.hidden = !aiPlayer;
+      field.querySelector('select').disabled = !aiPlayer;
+      const showNames = !aiPlayer && !pirate;
+      group.querySelector('[data-human-fields]').hidden = !showNames;
+      const choice = group.querySelector('select[name^="saved-name"]');
+      const input = group.querySelector('input[name^="player"]');
+      choice.disabled = !showNames;
+      input.disabled = !showNames || choice.value !== 'new';
+      input.required = !input.disabled;
+    });
+    app.querySelector('[data-setup-speed]').hidden = !controllerFields.some(control => control.value === 'ai');
     syncSpeedPanel();
+  };
+  const syncCharacters = () => {
+    if(!characterPicker) return;
+    const pirate = gameModeControl?.value === ONE_PIECE_MODE;
+    const otherSeat = 1 - characterSeat;
+    characterPicker.hidden = !pirate;
+    characterPicker.querySelectorAll('[data-character-faction]').forEach(grid => {
+      grid.setAttribute('aria-label', `${grid.dataset.characterFaction} · Joueur ${characterSeat + 1}`);
+    });
+    characterPicker.querySelectorAll('[data-character-seat]').forEach((button, index) => {
+      button.setAttribute('aria-pressed', String(index === characterSeat));
+      button.querySelector('strong').textContent = ONE_PIECE_CAST.get(characters[index]).name;
+    });
+    characterPicker.querySelectorAll('[data-character-choice]').forEach(button => {
+      const id = button.dataset.characterChoice;
+      button.disabled = id === characters[otherSeat];
+      button.setAttribute('aria-pressed', String(id === characters[characterSeat]));
+      const badge = button.querySelector('[data-assigned-seat]');
+      badge.hidden = !button.disabled;
+      badge.textContent = button.disabled ? `Joueur ${otherSeat + 1}` : '';
+    });
+    characterPicker.querySelectorAll('input[type="hidden"]').forEach((input, index) => {
+      input.disabled = !pirate;
+      input.value = characters[index];
+    });
+  };
+  gameModeControl?.addEventListener('change', () => {
+    const pirate = gameModeControl.value === ONE_PIECE_MODE;
+    app.querySelector('#game-mode-help').hidden = !pirate;
+    app.querySelector('[data-setup-intro]').textContent = pirate ? pirateIntro : classicIntro;
+    syncCharacters();
+    syncPlayers();
+  });
+  characterPicker?.addEventListener('click', event => {
+    const seat = event.target.closest('[data-character-seat]');
+    const portrait = event.target.closest('[data-character-choice]');
+    if(seat) {
+      characterSeat = Number(seat.dataset.characterSeat);
+      syncCharacters();
+    } else if(portrait && !portrait.disabled) {
+      const firstPlayer = characterSeat === 0;
+      characters[characterSeat] = portrait.dataset.characterChoice;
+      characterSeat = 1;
+      syncCharacters();
+      if(firstPlayer) characterPicker.querySelector('[data-character-seat="1"]').focus({preventScroll:true});
+    }
+  });
+  syncCharacters();
+  if(initialMode === ONE_PIECE_MODE) characterPicker?.querySelector('h2').focus();
+  controllerFields.forEach(control => control.addEventListener('change', syncPlayers));
+  aiToggles.forEach((checkbox, index) => checkbox.addEventListener('change', () => {
+    controllerFields[index].value = checkbox.checked ? 'ai' : 'human';
+    syncPlayers();
   }));
   const syncNameChoice = (control, clearNew = false) => {
     const group = control.closest('fieldset');
@@ -647,7 +771,11 @@ function prepare(replace = false, rematch = false, automatic = false) {
     const target = automatic ? parseSeriesCount(data.get('series-count')) : null;
     if(automatic && target === null) { countField.reportValidity();return; }
     const configurations = [1, 2].map(seat => playerSettings({controller:automatic ? 'ai' : data.get(`controller${seat}`),level:data.get(`level${seat}`)}));
-    const chosenNames = configurations.map((config, index) => {
+    const pirateGame = !automatic && data.get('game-mode') === ONE_PIECE_MODE;
+    const chosenCharacters = pirateGame ? [data.get('character1'), data.get('character2')] : null;
+    if(chosenCharacters && (chosenCharacters[0] === chosenCharacters[1] ||
+      !chosenCharacters.every(id => ONE_PIECE_CAST.has(id)))) return;
+    const chosenNames = chosenCharacters ? chosenCharacters.map(id => ONE_PIECE_CAST.get(id).name) : configurations.map((config, index) => {
       if(config.controller === 'ai') return `IA ${index+1}`;
       const selectedName = data.get(`saved-name${index+1}`);
       const known = typeof selectedName === 'string' && /^\d+$/.test(selectedName) ? humanRoster.names[Number(selectedName)] : null;
@@ -663,14 +791,16 @@ function prepare(replace = false, rematch = false, automatic = false) {
     const chosenStarter = automatic ? starter : Number(data.get('starter'));
     const chosenSetId = data.get('game-set');
     if(!GAME_SETS.some(set => set.id === chosenSetId)) return;
-    const chosenTokenOrder = data.get('token-order');
+    const chosenTokenOrder = pirateGame ? 'ordered' : data.get('token-order');
     if(!TOKEN_ORDERS.some(order => order.id === chosenTokenOrder)) return;
-    const chosenTokenCount = Number(data.get('token-count'));
+    const chosenTokenCount = pirateGame ? 10 : Number(data.get('token-count'));
     if(![5,10].includes(chosenTokenCount)) return;
     const chosenSet = getGameSet(chosenSetId,chosenTokenCount);
     const chosenStartMode = chosenSetId === 'miroir-50' ? MIROIR50_START_MODE : data.get('start-mode');
     if(chosenSetId === 'reference' && !(automatic ? ['classic', 'varied', ORIGINAL_START_MODE] : ['classic', ORIGINAL_START_MODE]).includes(chosenStartMode))return;
-    const game = configurePlayers(createGame(chosenNames, chosenStarter, chosenSet.geometryVersion), configurations);
+    const game = configurePlayers(createGame(chosenNames, chosenStarter, chosenSet.geometryVersion,
+      pirateGame ? { gameMode: ONE_PIECE_MODE } : undefined), configurations);
+    if(chosenCharacters) game.characters = chosenCharacters;
     const mirrorRematch = rematch && !automatic && chosenSetId === 'miroir-50' && gameSetIdForGeometry(session.game.geometryVersion) === 'miroir-50';
     const seed = chosenSetId === 'miroir-50'
       ? mirrorRematch ? miroir50RematchSeed(session.game) : randomMiroir50Seed(() => crypto.getRandomValues(new Uint32Array(1))[0] / 0x100000000)
@@ -683,7 +813,7 @@ function prepare(replace = false, rematch = false, automatic = false) {
         : crypto.getRandomValues(new Uint32Array(1))[0];
     }
     configureStartingTokens(game,chosenTokenOrder,tokenSeed);
-    humanRoster = rememberHumanNames(humanRoster, chosenNames.map((name, index) => configurations[index].controller === 'human' ? name : null));
+    if(!pirateGame) humanRoster = rememberHumanNames(humanRoster, chosenNames.map((name, index) => configurations[index].controller === 'human' ? name : null));
     if(automatic) {
       if(chosenSetId === 'reference') {
         startModePreference = chosenStartMode;
@@ -729,14 +859,18 @@ function renderMask() {
     app.innerHTML = `<section class="screen landscape">${brand}${phoneIcon}<h1>Remets le téléphone en portrait</h1><p>Le jeu est en pause et le plateau reste masqué.</p></section>`;
     return;
   }
+  const pirateGame = session.game.gameMode === ONE_PIECE_MODE;
+  const theme = pirateGame ? ' is-one-piece' : '';
+  const title = pirateGame ? onePieceBrand : brand;
   if(mixedGame()) {
-    app.innerHTML = `<section class="screen handoff">${brand}<button class="handoff-home" data-action="home">Accueil</button><p class="eyebrow">PARTIE EN PAUSE</p>${phoneIcon}<h1 class="handoff-title" tabindex="-1">Prêt à reprendre ?</h1><p>Ton plateau restera affiché pendant le tour de l’IA.</p><div class="handoff-actions"><button class="primary" data-action="identify">Reprendre la partie</button></div></section>`;
+    app.innerHTML = `<section class="screen handoff${theme}">${title}<button class="handoff-home" data-action="home">Accueil</button><p class="eyebrow">PARTIE EN PAUSE</p>${pirateGame ? captain(characterId(session.game, singleHumanIndex(session.game))) : phoneIcon}<h1 class="handoff-title" tabindex="-1">Prêt à reprendre ?</h1><p>Ton plateau restera affiché pendant le tour de l’IA.</p><div class="handoff-actions"><button class="primary" data-action="identify">Reprendre la partie</button></div></section>`;
     focusFirst();
     return;
   }
   if(isAIPlayer(session.game, recipientOf(session))) return renderAIReady();
-  app.innerHTML = `<section class="screen handoff" style="--player-color:${player().color};--name-length:${Math.max(1,player().name.length)}">${brand}<button class="handoff-home" data-action="home">Accueil</button><p class="eyebrow">PASSAGE DU TÉLÉPHONE</p>${phoneIcon}
-    <h1 class="handoff-title" tabindex="-1">Passe le téléphone<br><strong>à ${playerName()}</strong></h1><div class="symbol" aria-hidden="true">${symbol(player().symbol)}</div>
+  const character = pirateGame ? characterId(session.game, recipientOf(session)) : null;
+  app.innerHTML = `<section class="screen handoff${theme}" style="--player-color:${player().color};--name-length:${Math.max(1,player().name.length)}">${title}<button class="handoff-home" data-action="home">Accueil</button><p class="eyebrow">PASSAGE DU TÉLÉPHONE</p>${character ? captain(character) : phoneIcon}
+    <h1 class="handoff-title" tabindex="-1">Passe le téléphone<br><strong>à ${playerName()}</strong></h1>${character ? `<p>${ONE_PIECE_CAST.get(character).crew}</p>` : `<div class="symbol" aria-hidden="true">${symbol(player().symbol)}</div>`}
     <p>${playerName()}, appuie quand tu l’as en main.</p><div class="handoff-actions"><button class="primary" data-action="identify">Je suis ${playerName()} —<br>afficher mon plateau</button><p class="muted">Un appui affiche ton plateau.</p></div></section>`;
   focusFirst();
 }
@@ -752,12 +886,22 @@ function renderAIReady(message = '') {
     focusFirst();
     return;
   }
-  app.innerHTML = `<section class="screen ai-wait ai-ready">${brand}<p class="eyebrow">${duel ? 'IA CONTRE IA' : 'TOUR DE L’IA'}</p><div class="avatar" aria-hidden="true">◉</div><h1 tabindex="-1">${duel ? 'Le duel est en pause' : `${playerName()} attend`}</h1><p>${message || (duel ? 'Les deux IA joueront à tour de rôle. Tu peux regarder et mettre la partie en pause.' : 'Tu suivras les roues sur ton plateau pendant le tour de l’IA.')}</p>${speedSlot()}<div class="actions"><button class="primary" data-action="ai-start">${duel ? (session.game.turn === 1 && !session.game.engaged ? 'Démarrer le duel' : 'Reprendre le duel') : 'Reprendre le tour de l’IA'}</button><button class="secondary" data-action="home">Accueil</button></div></section>`;
+  const pirateGame = session.game.gameMode === ONE_PIECE_MODE;
+  app.innerHTML = `<section class="screen ai-wait ai-ready${pirateGame ? ' is-one-piece' : ''}">${pirateGame ? onePieceBrand : brand}<p class="eyebrow">${duel ? 'IA CONTRE IA' : 'TOUR DE L’IA'}</p>${pirateGame ? captain(characterId(session.game, recipientOf(session))) : '<div class="avatar" aria-hidden="true">◉</div>'}<h1 tabindex="-1">${duel ? 'Le duel est en pause' : `${playerName()} attend`}</h1><p>${message || (duel ? 'Les deux IA joueront à tour de rôle. Tu peux regarder et mettre la partie en pause.' : 'Tu suivras les roues sur ton plateau pendant le tour de l’IA.')}</p>${speedSlot()}<div class="actions"><button class="primary" data-action="ai-start">${duel ? (session.game.turn === 1 && !session.game.engaged ? 'Démarrer le duel' : 'Reprendre le duel') : 'Reprendre le tour de l’IA'}</button><button class="secondary" data-action="home">Accueil</button></div></section>`;
   focusFirst();
 }
 
 function soundIcon() {
   return `<svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M4 9h4l5-4v14l-5-4H4z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/>${sound.enabled ? '<path d="M16 8c3 2 3 6 0 8M19 5c5 4 5 10 0 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>' : '<path d="m17 9 5 6m0-6-5 6" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/>'}</svg>`;
+}
+
+function onePieceCrews(faceIndex) {
+  const { game } = session;
+  const rivalIndex = 1 - faceIndex;
+  return `<div class="one-piece-crews">
+    <h1 class="player-title one-piece-crew">${captain(characterId(game, faceIndex))}<span class="one-piece-crew-copy"><strong>${escape(game.players[faceIndex].name)}</strong><small data-crew-status></small></span><b data-own-count></b></h1>
+    <div class="one-piece-crew one-piece-rival">${captain(characterId(game, rivalIndex))}<span class="one-piece-crew-copy"><strong>${escape(game.players[rivalIndex].name)}</strong><small data-crew-status></small></span><b data-opponent-count></b></div>
+  </div>`;
 }
 
 function renderPlay(spectate = false) {
@@ -767,19 +911,21 @@ function renderPlay(spectate = false) {
   if (session.game.engaged) selected = session.game.engaged;
   const view = displayedView();
   const mixed = mixedGame();
+  const pirateGame = session.game.gameMode === ONE_PIECE_MODE;
+  const endTurnButton = `<button class="primary end-turn" data-action="end" disabled>${mixed ? 'Terminer mon tour' : 'Terminer et masquer'}</button>`;
   // Keep the human's surface, layout and native speed control in place between
   // turns. Only the shared wheels and the active-turn labels change.
   const sameBoard = mixed && app.querySelector(`.play[data-face-index="${view.faceIndex}"]`);
-  if(!sameBoard) app.innerHTML = `<section class="screen play" data-face-index="${view.faceIndex}" role="group" tabindex="0" style="--player-color:${view.color}">
-    <div class="topbar">${brand}${seriesOf(session.game) ? `<span class="series-counter">Partie ${session.game.series.round} / ${session.game.series.target}</span>` : ''}<div class="topbar-actions">${sound.available ? `<button class="audio-toggle" data-action="sound" aria-label="${sound.enabled ? 'Couper les sons du jeu' : 'Activer les sons du jeu'}" aria-pressed="${sound.enabled}">${soundIcon()}</button>` : ''}<button class="pause" aria-label="Mettre en pause et masquer" data-action="pause">Ⅱ</button></div></div>
-    <h1 class="player-title"><span class="symbol" aria-hidden="true">${symbol(view.symbol)}</span><span></span></h1>
+  if(!sameBoard) app.innerHTML = `<section class="screen play${pirateGame ? ' is-one-piece' : ''}" data-face-index="${view.faceIndex}" role="group" tabindex="0" style="--player-color:${view.color}">
+    <div class="topbar">${pirateGame ? onePieceBrand : brand}${seriesOf(session.game) ? `<span class="series-counter">Partie ${session.game.series.round} / ${session.game.series.target}</span>` : ''}<div class="topbar-actions">${sound.available ? `<button class="audio-toggle" data-action="sound" aria-label="${sound.enabled ? 'Couper les sons du jeu' : 'Activer les sons du jeu'}" aria-pressed="${sound.enabled}">${soundIcon()}</button>` : ''}<button class="pause" aria-label="Mettre en pause et masquer" data-action="pause">Ⅱ</button></div></div>
+    ${pirateGame ? onePieceCrews(view.faceIndex) : `<h1 class="player-title"><span class="symbol" aria-hidden="true">${symbol(view.symbol)}</span><span></span></h1>`}
     <span class="game-set-tag" data-game-set-label>${escape(gameSetLabel(session.game))}</span>
     <div class="progress"></div>
     <div class="board-wrap">${renderBoard({...view, selected, readOnly:spectate}, {opponentProgress:getOpponentProgress(session.game,view.faceIndex)})}</div>
     <div class="wheel-status"><span id="selection-label"></span><span id="restriction-label" role="status" aria-live="polite" aria-atomic="true"></span></div>
     <p class="alignment-help" id="alignment-help"></p>
     <div class="rotation-row"><div class="surface-help" id="rotation-readout" role="slider" tabindex="-1" aria-label="Rotation de la roue sélectionnée, flèches gauche et droite" aria-describedby="alignment-help" aria-valuemin="0" aria-valuemax="360" aria-valuenow="0" aria-disabled="true"></div>${mixed ? speedSlot(true) : ''}</div>
-    ${spectate && !mixed ? speedSlot(false,true) : `<button class="primary end-turn" data-action="end" disabled>${mixed ? 'Terminer mon tour' : 'Terminer et masquer'}</button>`}<p class="sr-only" id="play-message" aria-live="polite"></p>
+    ${spectate && !mixed ? speedSlot(false,true) : pirateGame ? `<div class="one-piece-turn-actions"><button class="secondary one-piece-gust" data-action="gust" aria-label="Coup de vent" aria-describedby="gust-status" aria-pressed="false" disabled><span>Coup de vent</span><small id="gust-status"></small></button>${endTurnButton}</div>` : endTurnButton}<p class="sr-only" id="play-message" aria-live="polite"></p>
   </section>`;
   const surface = app.querySelector('.play');
   surface.classList.toggle('is-ai-play',spectate);
@@ -797,7 +943,24 @@ function updatePlayUI(view = displayedView()) {
   const guidedStop = !spectate && surfacePress?.guide?.activeStop;
   const mixed = mixedGame();
   const activeName = session.game.players[session.game.active].name;
-  app.querySelector('.player-title > span:last-child').textContent = mixed ? `Plateau de ${view.name}` : (spectate ? view.name : `À toi, ${view.name}`);
+  const title = mixed ? `Plateau de ${view.name}` : (spectate ? view.name : `À toi, ${view.name}`);
+  if(view.gameMode === ONE_PIECE_MODE) {
+    const opponent = getOpponentProgress(session.game, view.faceIndex);
+    const status = (index, humanLabel) => isAIPlayer(session.game, index)
+      ? `IA · ${levelLabel(playerSettings(session.game.players[index]).level)}`
+      : humanLabel;
+    app.querySelector('.player-title [data-crew-status]').textContent = status(view.faceIndex, spectate ? 'Ton plateau' : 'À toi de jouer');
+    app.querySelector('.one-piece-rival [data-crew-status]').textContent = status(1 - view.faceIndex, 'Adversaire');
+    app.querySelector('[data-own-count]').textContent = `${view.exited.length}/${view.totalTokens}`;
+    app.querySelector('[data-opponent-count]').textContent = `${opponent.exited.length}/${view.totalTokens}`;
+    const gust = app.querySelector('[data-action="gust"]');
+    if(gust) {
+      const { remaining, armed, blockedWheel } = view.gust;
+      gust.disabled = spectate || !remaining || !blockedWheel || Boolean(surfacePress);
+      gust.setAttribute('aria-pressed', String(armed));
+      gust.querySelector('small').textContent = !remaining ? 'Utilisé' : armed ? `Roue ${blockedWheel} libérée` : blockedWheel ? '1 disponible' : '1 en réserve';
+    }
+  } else app.querySelector('.player-title > span:last-child').textContent = title;
   const nextTokens = view.nextBySeries.map((next, lane) => {
     const { color, label, symbol } = seriesAppearance(view, lane);
     return `<b style="background:${color}" aria-label="${label}, ${next > 5 ? 'terminée' : `prochain jeton ${next}`}"><small aria-hidden="true">${view.totalTokens > 5 ? symbol : ''}</small>${next > 5 ? '✓' : next}</b>`;
@@ -805,7 +968,8 @@ function updatePlayUI(view = displayedView()) {
   app.querySelector('.progress').innerHTML = `<span><span class="next-label">${view.totalTokens > 5 ? 'PROCHAINS' : 'PROCHAIN JETON'}</span> <span class="series-next">${nextTokens}</span></span><span>${view.exited.length} / ${view.totalTokens} arrivés</span>`;
   app.querySelector('#selection-label').textContent = selected ? `Roue ${selected} ${guidedStop ? 'calée' : session.game.engaged ? 'engagée' : 'sélectionnée'}` : spectate ? 'L’IA réfléchit…' : 'Choisis une roue';
   const rule = wheelRestrictionMessage(view,{watchingOpponent:view.faceIndex !== session.game.active});
-  const ruleText = rule.text || (spectate ? `IA · ${levelLabel(playerSettings(session.game.players[session.game.active]).level)}` : 'Rotation guidée');
+  const ruleText = view.gust?.armed ? `Coup de vent · roue ${view.gust.blockedWheel} libérée`
+    : rule.text || (spectate ? `IA · ${levelLabel(playerSettings(session.game.players[session.game.active]).level)}` : 'Rotation guidée');
   const ruleLabel = app.querySelector('#restriction-label');
   if(ruleLabel.textContent !== ruleText) ruleLabel.textContent = ruleText;
   const ruleStatus = app.querySelector('.wheel-status');
@@ -843,6 +1007,8 @@ function lockBoardForTransition() {
   });
   const end = app.querySelector('[data-action="end"]');
   if(end) end.disabled = true;
+  const gust = app.querySelector('[data-action="gust"]');
+  if(gust) gust.disabled = true;
   syncBackgroundMusic();
 }
 
@@ -938,6 +1104,16 @@ function announce(message) {
   const status = app.querySelector('.wheel-status');
   if(status?.dataset?.wheelRule && status.dataset.wheelRule !== 'none') app.querySelector('#restriction-label').textContent=message;
   else app.querySelector('#play-message').textContent=message;
+}
+
+function toggleGust() {
+  if(mode !== 'play' || surfacePress || contacts.size) return;
+  const { game } = session;
+  const gust = getView(game, game.active).gust;
+  if(!gust || !setGustArmed(game, !gust.armed)) return;
+  if(selected && !allowedWheels(game).includes(selected)) selected = game.selectedWheel = null;
+  refreshPlay();
+  persist({type:'gust'});
 }
 
 function selectWheel(id, focus = false) {
@@ -1222,13 +1398,19 @@ async function runAITurn() {
     const level = playerSettings(game.players[active]).level;
     const move = await ai.choose(view, level, rememberAIPosition(game, active, view, level));
     if(!current()) return;
-    if(!move || !allowedWheels(game).includes(move.wheel)
+    const useGust = move?.useGust && view.gust?.remaining && view.gust.blockedWheel === move.wheel;
+    if(!move || (!allowedWheels(game).includes(move.wheel) && !useGust)
       || !Number.isFinite(move.localDelta) || Math.abs(move.localDelta) < 1e-9) {
       cancelAITurn();
       renderAIReady('Le tour est en pause. Tu peux relancer l’IA.');
       return;
     }
     if(!await waitForAI(AI_THINK_MS, generation) || !current()) return;
+    if(useGust && !allowedWheels(game).includes(move.wheel) && !setGustArmed(game, true)) {
+      cancelAITurn();
+      renderAIReady();
+      return;
+    }
     selected = move.wheel;
     game.selectedWheel = selected;
     app.dataset.aiPhase = 'selected';
@@ -1348,8 +1530,10 @@ function renderResult() {
   mode='result';
   const draw=verdict.winner===null;
   const winner=draw?null:session.game.players[verdict.winner];
-  const reason=verdict.reason==='order'?'Un jeton est sorti hors de l’ordre attendu.':verdict.reason==='draw'?'Deux événements décisifs simultanés désignent des gagnants différents.':`Les ${tokenTotal(session.game.geometryVersion)} jetons sont sortis dans le bon ordre de leur série.`;
-  app.innerHTML=`<section class="screen result">${brand}<p class="eyebrow">FIN DE PARTIE</p><div class="avatar" aria-hidden="true">${draw?'=':symbol(winner.symbol)}</div><h1 tabindex="-1">${draw?'Égalité !':`${escape(winner.name)} gagne !`}</h1>${setCaption()}<p>${reason}</p><div class="actions"><button class="primary" data-action="rematch">Revanche</button><button class="secondary" data-action="statistics">Statistiques</button><button class="secondary" data-action="home">Accueil</button></div></section>`;
+  const pirateGame = session.game.gameMode === ONE_PIECE_MODE;
+  const reason=verdict.reason==='order'?'Un jeton est sorti hors de l’ordre attendu.':verdict.reason==='draw'?'Deux événements décisifs simultanés désignent des gagnants différents.':pirateGame ? 'Ses deux séries sont sorties dans l’ordre. Son équipage remporte le One Piece.' : `Les ${tokenTotal(session.game.geometryVersion)} jetons sont sortis dans le bon ordre de leur série.`;
+  const emblem = pirateGame && !draw ? captain(characterId(session.game, verdict.winner)) : `<div class="avatar" aria-hidden="true">${draw?'=':symbol(winner.symbol)}</div>`;
+  app.innerHTML=`<section class="screen result${pirateGame ? ' is-one-piece' : ''}">${pirateGame ? onePieceBrand : brand}<p class="eyebrow">FIN DE PARTIE</p>${emblem}<h1 tabindex="-1">${draw?'Égalité !':`${escape(winner.name)} gagne !`}</h1>${setCaption()}<p>${reason}</p><div class="actions"><button class="primary" data-action="rematch">Revanche</button><button class="secondary" data-action="statistics">Statistiques</button><button class="secondary" data-action="home">Accueil</button></div></section>`;
   focusFirst();
 }
 
@@ -1411,6 +1595,7 @@ function renderRules() {
     ${rulesPreviewMarkup({geometryVersion:session?.game.geometryVersion ?? getGameSet(gameSetPreference,tokenCountPreference).geometryVersion})}
     <ol><li>${count===5 ? 'Chacun possède cinq pions : une série de 1 à 5 dans une seule glissière.' : 'Chacun possède dix pions : une série de 1 à 5 à gauche et une autre à droite, distinguées par leur couleur et leur symbole.'}</li><li>À ton tour, choisis une roue et tourne-la lentement. Les deux faces bougent ensemble.</li><li>Tu peux t’arrêter, reprendre et changer de sens sur cette même roue.</li><li>La dernière roue jouée par l’adversaire est interdite. Exception : ton dernier pion est encore dans la roue 5.</li><li>Pour gagner, sors les ${count===5 ? 'cinq' : 'dix'} pions en respectant l’ordre de 1 à 5 dans chaque série.${count===10 ? ' Tu peux alterner les deux séries.' : ''} Une sortie hors ordre fait perdre son propriétaire.</li><li>Contre une IA, appuie sur « Terminer mon tour » et garde le téléphone. À deux humains, appuie sur « Terminer et masquer », puis donne le téléphone au joueur indiqué. Il appuie une seule fois sur le bouton à son prénom pour afficher son plateau.</li></ol>
     ${session && tokenTotal(session.game.geometryVersion) === 5 ? '<p>Ta partie utilise une seule série de cinq pions et une seule glissière. Pour cette partie, fais sortir les cinq jetons de 1 à 5 pour gagner.</p>' : ''}
+    <p>Pour jouer à <strong>One Piece · Cap sur Grand Line</strong>, sélectionne ce mode dans Nouvelle partie, puis choisis un personnage pour chaque joueur. Chaque équipage joue avec deux séries de cinq pions dans l’ordre. Une fois par partie, touche <strong>Coup de vent</strong> avant de tourner pour libérer la roue bloquée. Ton pouvoir est dépensé quand tu tournes cette roue. Touche à nouveau le bouton pour annuler.</p>
     <p>Dans <strong>Options → Nombre de pions</strong>, choisis <strong>5 pions — une série</strong> avec une seule glissière, ou <strong>10 pions — deux séries</strong> avec deux glissières. Fais sortir tous les pions de chaque série de 1 à 5 pour gagner. Dans <strong>Options</strong>, choisis aussi l’ordre des jetons. Le mode mélangé tire les numéros au sort dans chaque file et donne la même combinaison aux deux faces. Les sorties restent dans l’ordre de 1 à 5 pour chaque série.</p><p>Choisis ton set dans <strong>Options</strong> : <strong>Référence</strong> conserve le réglage habituel. <strong>Miroir 50</strong> utilise des roues symétriques et 50 positions sélectionnées. Le départ est tiré au sort ; une revanche propose son complément avec l’autre joueur qui commence. Les règles et les commandes restent les mêmes.</p>
     <p>Les nouvelles parties proposent « Repères d’origine — estimés » : les roues retrouvent une position reconstituée d’après les flèches du jeu photographié. Ce départ reste une estimation et ne garantit pas l’équilibre des faces. Tu peux choisir « Ancien départ Cascado » dans les options.</p><p>Pose le doigt sur une roue, maintiens-le et fais-le glisser autour de son centre pour la tourner. La roue suit ton mouvement, dans les deux sens, avec un guidage vers les passages de ta face. Approche une position utile : la roue se cale et le repère devient doré. Poursuis ton geste pour dépasser ce cran et atteindre le suivant. Relâche pour t’arrêter ; garder le doigt immobile ne fait pas tourner. Si tu touches le moyeu, éloigne d’abord le doigt du centre puis poursuis ton geste. Au clavier, sélectionne une roue avec Entrée ou Espace, puis utilise les flèches gauche et droite pour avancer par crans assistés de 6° au maximum.</p><p>Pour faire tomber un jeton, place les deux ouvertures presque exactement face à face dans l’axe du passage. Le guidage aide à centrer la roue. La réception doit être libre. Si la réception est fermée, prépare cette roue lors d’un autre tour. Les petits repères fixes indiquent les passages.</p><p>En bas du plateau, les jetons déjà arrivés de l’autre joueur apparaissent en transparence, avec son compteur. Ses jetons encore en jeu restent sur sa propre face.</p><p>Le bouton haut-parleur en haut du plateau active ou coupe les sons du jeu, y compris les jingles. Un clic confirme leur réactivation. Dans Options, règle séparément le volume des sons du jeu et celui de la musique de fond, ou coupe l’un des deux. La rotation produit un petit cliquetis feutré, façon coffre-fort : plus tu tournes vite, plus les sons se rapprochent ; ils s’arrêtent avec ton geste. Le clic net signale seulement un passage suffisamment ouvert entre deux roues de ta face pendant ton tour ; une seule encoche devant un conduit ne suffit pas. Il accompagne aussi un halo et, si disponible, une brève vibration. Tu entends aussi les chutes adverses, même sur la face cachée, avec un bruit générique. Une courte mélodie accompagne la victoire ou la défaite seulement quand le résultat est dévoilé. Si aucun son ne sort, ouvre « Son : aide et test » dans les options pour le relancer et le tester. Sur les anciens iPhone, désactive aussi le mode silencieux et monte le volume multimédia. Full et les simulations sans plateau restent silencieux.</p><p>Choisis Humain ou IA pour chaque joueur au début de la partie. Pour un humain, reprends un nom enregistré sur cet appareil ou crée-en un nouveau. Pour une IA, choisis seulement son niveau : Facile, Normal, Difficile ou Expert. Expert adapte sa recherche au set : il prépare les réceptions, compare les parcours possibles et donne la priorité aux prochains numéros de ses séries. Il utilise toujours uniquement sa propre face. Les IA jouent sur cet appareil et ne voient que leur propre face. Contre une IA, ton plateau reste affiché : regarde les roues tourner pendant son tour, puis reprends la main directement. Pour regarder deux IA jouer, choisis IA pour chacun des joueurs dans « Nouvelle partie », puis leurs niveaux. Dès qu’une chute décide de la victoire, de la défaite ou de l’égalité, la roue s’arrête et le résultat s’affiche après l’animation visible.</p><p class="muted">Convention de cette adaptation : les sorties simultanées doivent former les prochains numéros consécutifs de chacune des séries concernées. Si des fins simultanées désignent des gagnants différents, la partie est nulle. Le calage des roues est estimé à partir de la vidéo du jeu original ; il ne constitue pas une reproduction exacte.</p>
     <button class="primary" data-action="home">J’ai compris</button></section>`;
@@ -1504,6 +1689,7 @@ app.addEventListener('click',async event=>{
   if(['identify','ai-start','statistics-reset-confirm'].includes(action)&&!activationAllowed(event))return;
   switch(action){
     case 'new':prepare(Boolean(session));break;
+    case 'one-piece':if(mode==='home')prepare(Boolean(session),false,false,ONE_PIECE_MODE);break;
     case 'automatic':if(mode==='home')prepare(Boolean(session),false,true);break;
     case 'series-preset':
       if(mode==='preparation') {
@@ -1538,6 +1724,7 @@ app.addEventListener('click',async event=>{
       break;
     case 'ai-pause':interrupt();break;
     case 'pause':interrupt();break;
+    case 'gust':toggleGust();break;
     case 'sound':
       if(!sound.available) break;
       sound.setEnabled(!sound.enabled);
@@ -1637,7 +1824,9 @@ async function boot() {
     if(session) app.dataset.geometryVersion = session.game.geometryVersion;
     const identified=session&&await ensureLegacyStatisticsIdentity(session.game);
     if(!hasStoredHumanRoster()) {
-      humanRoster = mergeHumanNames(humanRoster, session?.game.players.filter(p => playerSettings(p).controller === 'human').map(p => p.name) ?? []);
+      if(session?.game.gameMode !== ONE_PIECE_MODE) {
+        humanRoster = mergeHumanNames(humanRoster, session?.game.players.filter(p => playerSettings(p).controller === 'human').map(p => p.name) ?? []);
+      }
       try {
         const statistics = await loadStatistics();
         humanRoster = mergeHumanNames(humanRoster, statistics.profiles.filter(profile => profile.controller === 'human').map(profile => profile.name));

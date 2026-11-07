@@ -1,5 +1,5 @@
 /** Local opponents. Their entire information boundary is the active getView projection. */
-import { createGame, rotate, endTurn, getView, allowedWheels } from './engine.js';
+import { createGame, rotate, endTurn, getView, allowedWheels, ONE_PIECE_MODE } from './engine.js';
 import { aiPositionKey, aiStagnation, defensiveMode, rememberedOptions } from './ai-memory.js';
 import {
   WHEELS, OUTPUT_GATE, gates, inputGates, normalizeAngle, physicalAngleFor,
@@ -20,6 +20,7 @@ const FACE_GATES = [gates(0), gates(1)];
 const WHEEL_IDS = WHEELS.map(({ id }) => id);
 const PROGRESS = [0, 1, 2, 3, 3, 4, 5];
 const EPSILON = 1e-6;
+const GUST_COST = 600;
 const SHUFFLED_PARKING_COST = Object.freeze([400, 0, 0, 0, 3000]);
 const CONFIG = {
   easy: { depth: 1, beam: 1 },
@@ -32,6 +33,12 @@ const CONFIG = {
 // The symmetric set benefits from comparing more routes over a shorter horizon:
 // intervening shared rotations can invalidate distant own-board preparation.
 const MIRROR_EXPERT_CONFIG = Object.freeze({ depth: 3, beam: 6 });
+
+export function gustWheelForAI(view) {
+  const wheel = view?.gust?.blockedWheel;
+  return view?.gameMode === ONE_PIECE_MODE && view.engaged == null && view.gust?.remaining === 1
+    && WHEEL_IDS.includes(wheel) && wheel === view.lastWheel ? wheel : null;
+}
 
 function virtualGame(view) {
   const geometryVersion = view.geometryVersion ?? LEGACY_GEOMETRY_VERSION;
@@ -199,19 +206,28 @@ function compareRankedMoves(a, b) {
     || Math.round(a.delta / EPSILON) - Math.round(b.delta / EPSILON);
 }
 
-function rankedMoves(state, legal, anticipate = false, relay = false) {
+function rankedMoves(state, legal, anticipate = false, relay = false, gustWheel = null) {
   const simulate = move => {
     const after = copyPosition(state);
+    // The projection authorises this extra root only. Its virtual gesture
+    // bypasses the lock; the live game spends the charge on accepted motion.
+    if (move.wheel === gustWheel) after.engaged = move.wheel;
     const accepted = rotate(after, move.wheel, move.delta, { stopOnVerdict: anticipate });
-    return { ...move, after, value: accepted ? score(after, anticipate) : -Infinity };
+    const value = accepted ? score(after, anticipate) : -Infinity;
+    const cost = move.wheel === gustWheel && Math.abs(value) < 1e9 ? GUST_COST : 0;
+    return { ...move, after, value: value - cost };
   };
   const ranked = candidates(state, legal, anticipate).map(simulate)
-    .filter(move => Math.abs(move.delta) >= 0.5 || ownTransfers(move.after, state.active).length)
-    .sort(compareRankedMoves);
+    .filter(move => Math.abs(move.delta) >= 0.5 || ownTransfers(move.after, state.active).length);
+  if (gustWheel !== null && !legal.includes(gustWheel)) {
+    // Save the single charge for a safe rotation that moves at least one pawn.
+    const gustMoves = candidates(state, [gustWheel], anticipate).map(simulate)
+      .filter(move => move.value > -1e9 && ownTransfers(move.after, state.active).length);
+    ranked.push(...gustMoves);
+  }
+  ranked.sort(compareRankedMoves);
   if (ranked.length) return relay ? relayFinishes(state, ranked, simulate) : ranked;
-  const after = copyPosition(state);
-  rotate(after, legal[0], 6, { stopOnVerdict: anticipate });
-  return [{ wheel: legal[0], delta: 6, after, value: score(after, anticipate) }];
+  return [simulate({ wheel: legal[0], delta: 6 })];
 }
 
 function ownTransfers(state, owner) {
@@ -572,7 +588,8 @@ export function chooseAIMove(view, level = 'normal', options = {}) {
     || view.geometryVersion === MIRROR_FIVE_GEOMETRY_VERSION)
     ? MIRROR_EXPERT_CONFIG : CONFIG[level] ?? CONFIG.normal;
   const state = virtualGame(view);
-  const ranked = rankedMoves(state, legal, anticipate, relay);
+  const gustWheel = gustWheelForAI(view);
+  const ranked = rankedMoves(state, legal, anticipate, relay, gustWheel);
   const safe = ranked.filter(move => move.value > -1e9);
   const preferred = relay ? entranceReleaseMoves(state, safe) : safe;
   const pool = preferred.length ? preferred : ranked;
@@ -592,10 +609,16 @@ export function chooseAIMove(view, level = 'normal', options = {}) {
       // A nearer gain beats the same gain delayed. Root safety always wins.
       // A possible opponent-assisted transfer only breaks close ties.
       const opportunity = relay && possibleOpponentFeed(move, view.faceIndex) ? 12 : 0;
-      const value = projected * 0.85 + move.value * 0.15 - Math.abs(move.delta) * 0.003 + opportunity;
+      const futureCost = move.wheel === gustWheel && Math.abs(move.value) < 1e9 ? GUST_COST * 0.85 : 0;
+      const value = projected * 0.85 + move.value * 0.15 - futureCost
+        - Math.abs(move.delta) * 0.003 + opportunity;
       if (value > best + EPSILON) { best = value; chosen = move; }
     }
   }
   if (!chosen) return null;
-  return { wheel: chosen.wheel, localDelta: chosen.delta * (view.faceIndex === 0 ? 1 : -1) };
+  return {
+    wheel: chosen.wheel,
+    localDelta: chosen.delta * (view.faceIndex === 0 ? 1 : -1),
+    ...(chosen.wheel === gustWheel && !legal.includes(chosen.wheel) ? { useGust: true } : {}),
+  };
 }

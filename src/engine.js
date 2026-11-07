@@ -11,24 +11,31 @@ const SYMBOLS = ['●', '◆'];
 const FACE_GATES = [gates(0), gates(1)];
 const clone = (value) => JSON.parse(JSON.stringify(value));
 
-export function createGame(players = ['Camille', 'Léa'], starter = 0, geometryVersion = GEOMETRY_VERSION) {
+export const ONE_PIECE_MODE = 'one-piece';
+
+export function createGame(players = ['Camille', 'Léa'], starter = 0, geometryVersion = GEOMETRY_VERSION,
+  { gameMode = 'classic' } = {}) {
   if (!Array.isArray(players) || players.length !== 2 || ![0, 1].includes(starter)) {
     throw new TypeError('Une partie exige deux joueurs et un premier joueur 0 ou 1.');
   }
   const wheels = wheelsFor(geometryVersion);
+  const total = tokenTotal(geometryVersion);
+  if (gameMode !== 'classic' && gameMode !== ONE_PIECE_MODE) throw new RangeError('Mode de jeu inconnu.');
+  if (gameMode === ONE_PIECE_MODE && total !== 10) throw new RangeError('Le mode One Piece exige dix pions.');
   return {
     schemaVersion: 1,
     geometryVersion,
     gameSetId: gameSetIdForGeometry(geometryVersion),
     players: players.map((name, index) => ({ name: String(name).trim() || `Joueur ${index + 1}`, symbol: SYMBOLS[index], color: COLORS[index] })),
     angles: wheels.map(() => 0),
-    faces: [0, 1].map(() => ({ queue: Array.from({ length: tokenTotal(geometryVersion) }, (_, index) => index + 1), slots: wheels.map(({ notches }) => Array(notches).fill(null)), exited: [] })),
+    faces: [0, 1].map(() => ({ queue: Array.from({ length: total }, (_, index) => index + 1), slots: wheels.map(({ notches }) => Array(notches).fill(null)), exited: [] })),
     active: starter,
     turn: 1,
     engaged: null,
     lastWheel: null,
     verdict: null,
     events: [],
+    ...(gameMode === ONE_PIECE_MODE ? { gameMode, gust: { used: [false, false], armed: false } } : {}),
   };
 }
 
@@ -45,10 +52,24 @@ function lastTokenOnFive(face) {
   return remaining === 1 && face.slots[4].some((token) => token !== null);
 }
 
+function blockedWheel(state) {
+  if (state.engaged !== null || state.lastWheel == null) return null;
+  return state.lastWheel === 5 && lastTokenOnFive(state.faces[state.active]) ? null : state.lastWheel;
+}
+
+/** Arm or cancel the active player's power before they engage any wheel. */
+export function setGustArmed(state, armed) {
+  if (typeof armed !== 'boolean' || state.gameMode !== ONE_PIECE_MODE || state.verdict ||
+      state.gust.used[state.active] || blockedWheel(state) === null || state.gust.armed === armed) return false;
+  state.gust.armed = armed;
+  return true;
+}
+
 export function allowedWheels(state) {
   if (state.engaged !== null) return [state.engaged];
-  const exception = lastTokenOnFive(state.faces[state.active]);
-  return WHEELS.map(({ id }) => id).filter((id) => id !== state.lastWheel || (id === 5 && exception));
+  const blocked = blockedWheel(state);
+  const unlocked = state.gameMode === ONE_PIECE_MODE && state.gust.armed && !state.gust.used[state.active];
+  return WHEELS.map(({ id }) => id).filter((id) => id !== blocked || unlocked);
 }
 
 /** This projection intentionally contains neither opponent data nor the verdict. */
@@ -58,6 +79,14 @@ export function getView(state, faceIndex) {
   return {
     faceIndex,
     geometryVersion: state.geometryVersion,
+    ...(state.gameMode === ONE_PIECE_MODE ? {
+      gameMode: ONE_PIECE_MODE,
+      gust: {
+        remaining: state.gust.used[faceIndex] ? 0 : 1,
+        armed: faceIndex === state.active && state.gust.armed,
+        blockedWheel: faceIndex === state.active ? blockedWheel(state) : null,
+      },
+    } : {}),
     ...(state.tokenStart?.mode === 'shuffled' ? { tokenOrder: 'shuffled' } : {}),
     ...state.players[faceIndex],
     angles: WHEELS.map(({ id }) => notchAngle(faceIndex, id, 0, state.angles[id - 1], state.geometryVersion)),
@@ -234,8 +263,14 @@ export function rotate(state, wheelId, physicalDeltaDegrees, { stopOnVerdict = f
   if (stopOnVerdict && state.verdict) return false;
   if (!WHEELS.some(({ id }) => id === wheelId) || !Number.isFinite(physicalDeltaDegrees) || Math.abs(physicalDeltaDegrees) < 1e-12) return false;
   if (!allowedWheels(state).includes(wheelId)) return false;
+  const start = state.angles[wheelId - 1];
+  const finish = normalizeAngle(start + physicalDeltaDegrees);
+  if (state.gameMode === ONE_PIECE_MODE && state.gust.armed) {
+    if (finish === start && Math.abs(physicalDeltaDegrees) < 360) return false;
+    if (wheelId === blockedWheel(state)) state.gust.used[state.active] = true;
+    state.gust.armed = false;
+  }
   state.engaged = wheelId;
-  const finish = normalizeAngle(state.angles[wheelId - 1] + physicalDeltaDegrees);
   for (const angle of trajectoryStops(state, wheelId, physicalDeltaDegrees)) {
     state.angles[wheelId - 1] = normalizeAngle(angle);
     stabilize(state, wheelId);

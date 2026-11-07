@@ -1,12 +1,18 @@
-import { chooseAIMove } from './ai.js';
+import { chooseAIMove, gustWheelForAI } from './ai.js';
+import { ONE_PIECE_MODE } from './engine.js';
 import { SUPPORTED_GEOMETRY_VERSIONS, LEGACY_GEOMETRY_VERSION } from './geometry.js';
 import { tokenTotal, queueLanes, nextBySeries } from './tokens.js';
 import { rememberedOptions } from './ai-memory.js';
 
-function finiteMove(value) {
-  return value && Number.isInteger(value.wheel) && value.wheel >= 1 && value.wheel <= 5 &&
-    Number.isFinite(value.localDelta) && value.localDelta !== 0
-    ? { wheel: value.wheel, localDelta: value.localDelta } : null;
+function finiteMove(value, view) {
+  if (!value || !Number.isInteger(value.wheel) || value.wheel < 1 || value.wheel > 5 ||
+      !Number.isFinite(value.localDelta) || value.localDelta === 0) return null;
+  const move = { wheel: value.wheel, localDelta: value.localDelta };
+  if (value.useGust === true) {
+    if (value.wheel !== gustWheelForAI(view) || view.allowedWheels.includes(value.wheel)) return null;
+    move.useGust = true;
+  }
+  return move;
 }
 
 /** Copy only the current face's projection, never a game or an opponent. */
@@ -27,6 +33,11 @@ function projectedView(view) {
         slots.every(value => value === null || token(value))) ||
       !wheel(view.engaged) || !wheel(view.lastWheel) ||
       !Array.isArray(view.allowedWheels) || !view.allowedWheels.every(wheelId)) return null;
+  const gust = view.gameMode === ONE_PIECE_MODE && view.gust ? {
+    remaining: view.gust.remaining === 1 ? 1 : 0,
+    armed: view.gust.armed === true,
+    blockedWheel: wheelId(view.gust.blockedWheel) ? view.gust.blockedWheel : null,
+  } : null;
   return {
     faceIndex: view.faceIndex,
     geometryVersion,
@@ -41,6 +52,7 @@ function projectedView(view) {
     engaged: view.engaged ?? null,
     lastWheel: view.lastWheel ?? null,
     allowedWheels: [...view.allowedWheels],
+    ...(gust ? { gameMode: ONE_PIECE_MODE, gust } : {}),
   };
 }
 
@@ -87,7 +99,7 @@ export function createAIClient({
       try { result = fallback(job.view, job.level, job.options); }
       catch { finish(job, null); return; }
       Promise.resolve(result).then(
-        move => finish(job, finiteMove(move)),
+        move => finish(job, finiteMove(move, job.view)),
         () => finish(job, null),
       );
     }, 0);
@@ -117,7 +129,7 @@ export function createAIClient({
           if (active !== job || job.fallbackStarted || event.data?.requestId !== job.requestId) return;
           if (event.data.error) { useFallback(job); return; }
           if (event.data.move === null) { finish(job, null); return; }
-          const move = finiteMove(event.data.move);
+          const move = finiteMove(event.data.move, job.view);
           if (move) finish(job, move);
           else useFallback(job);
         };

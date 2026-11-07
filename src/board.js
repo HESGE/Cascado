@@ -8,6 +8,7 @@ import { renderOpponentProgress } from './opponent-progress.js';
 import { passageStates, endGateStates } from './alignment.js';
 import { tokenNumber, tokenSeries, tokenTotal, seriesCount, nextBySeries } from './tokens.js';
 import { wheelRestriction } from './wheel-rule.js';
+import { onePieceBoardDefs, renderIslandWheel, renderOnePieceDetails } from './one-piece-board.js';
 
 const WHEELS = geometryWheels.map(wheel => ({ ...wheel, r: wheel.radius, n: wheel.notches }));
 const LINKS = geometryLinks.map(({ from, to }) => [from, to]);
@@ -47,7 +48,7 @@ function token(value, x, y, view) {
   </g>`;
 }
 
-function renderWheel(wheel, view, color) {
+function renderWheel(wheel, view, color, onePiece) {
   const { id, x, y, r, n } = wheel;
   const base = number(view.angles?.[id - 1]);
   const direction = view.faceIndex === 1 ? -1 : 1;
@@ -72,9 +73,9 @@ function renderWheel(wheel, view, color) {
     ${rule === 'upcoming' ? `<circle class="wheel-rule-ring" cx="${x}" cy="${y}" r="${r + 5}" fill="none" stroke="${ruleColor}" stroke-width="3" stroke-dasharray="5 4"/>` : ''}
     <g transform="translate(${x} ${y})"><g data-wheel-rotor="${id}" transform="rotate(${f(base)})">
       <mask id="wheel-cutout-${id}" maskUnits="userSpaceOnUse" x="${-r - 2}" y="${-r - 2}" width="${r * 2 + 4}" height="${r * 2 + 4}"><circle r="${r}" fill="white"/>${cutouts}</mask>
-      <g mask="url(#wheel-cutout-${id})"><circle r="${r}" fill="${allowed ? 'url(#ivory-wheel)' : '#D2DCD5'}"/></g>
+      <g mask="url(#wheel-cutout-${id})">${onePiece ? renderIslandWheel(wheel, allowed) : `<circle r="${r}" fill="${allowed ? 'url(#ivory-wheel)' : '#D2DCD5'}"/>`}</g>
     </g></g>
-    <circle cx="${x}" cy="${y + 1.8}" r="11" fill="#032F43" opacity=".16"/><circle cx="${x}" cy="${y}" r="11" fill="url(#wheel-hub)"/><circle cx="${x}" cy="${y}" r="3" fill="#91A2A1"/>
+    <circle cx="${x}" cy="${y + 1.8}" r="11" fill="#032F43" opacity=".16"/><circle cx="${x}" cy="${y}" r="11" fill="${onePiece ? 'url(#one-piece-hub)' : 'url(#wheel-hub)'}"/><circle cx="${x}" cy="${y}" r="3" fill="${onePiece ? '#60472e' : '#91A2A1'}"/>
     ${rule ? `<g class="wheel-rule-lock" transform="translate(${x} ${y})" aria-hidden="true"><circle r="15" fill="${rule === 'blocked' ? '#963C36' : '#795317'}" stroke="${ruleColor}" stroke-width="2"/><path d="M-4.5-1v-4a4.5 4.5 0 0 1 9 0v4" fill="none" stroke="#FFFCF5" stroke-width="2.5" stroke-linecap="round"/><rect x="-6.5" y="-1" width="13" height="10" rx="2" fill="#FFFCF5"/><path d="M0 2v3" stroke="${rule === 'blocked' ? '#963C36' : '#795317'}" stroke-width="2" stroke-linecap="round"/></g>` : ''}
     <circle class="wheel-focus" cx="${x}" cy="${y}" r="${r + 1}" fill="none" stroke="#FFFFFF" stroke-width="3" stroke-dasharray="4 3"/>
     <circle class="wheel-hit" cx="${x}" cy="${y}" r="${r}" fill="transparent"/>
@@ -92,6 +93,7 @@ function portMarker(wheel, angle, status, key) {
 
 /** Angles are already local; slot order is reversed on the back face. */
 export function renderBoard(view, { opponentProgress = null } = {}) {
+  const onePiece = view.gameMode === 'one-piece';
   const version = geometryOf(view);
   const total = tokenTotal(version);
   const lanes = seriesCount(version);
@@ -123,7 +125,7 @@ export function renderBoard(view, { opponentProgress = null } = {}) {
     return `<path data-queue-lane="${lane}" d="${path}"/><path d="${path}" stroke="${seriesAppearance(view, lane).color}" stroke-opacity=".55" stroke-width="1.4"/>`;
   }).join('') : '<path data-queue-lane="0" d="M52 19L180 40V78"/><path d="M52 19L180 40" stroke="#3C87A0" stroke-width="1.4"/>';
   const restriction = wheelRestriction(view);
-  const wheelLabels = [[250, 80], [317, 169], [75, 251], [330, 300], [28, 364]].map(([x, y], index) => {
+  const wheelLabels = onePiece ? renderOnePieceDetails(back, Boolean(opponentProgress)) : [[250, 80], [317, 169], [75, 251], [330, 300], [28, 364]].map(([x, y], index) => {
     const blocked = restriction.blockedWheel === index + 1;
     const upcoming = restriction.upcomingWheel === index + 1;
     return `<text x="${mirror(x)}" y="${y}" fill="${blocked ? '#FF9B91' : upcoming ? '#FFD38A' : '#B0D3DD'}" font-size="23" font-weight="${blocked || upcoming ? '800' : '550'}" text-anchor="middle">${index + 1}</text>`;
@@ -141,11 +143,11 @@ export function renderBoard(view, { opponentProgress = null } = {}) {
   }).join('') + endGateStates(view).map(gate => portMarker(wheels[gate.wheel - 1], gate.angle,
     gate.ready ? 'ready' : gate.occupied ? 'full' : gate.open ? 'open' : 'closed', gate.kind)).join('');
   const tokens = tokenPositions(view).map(position => token(position.token, position.x, position.y, view)).join('');
-  return `<svg xmlns="http://www.w3.org/2000/svg" class="game-board" viewBox="0 0 360 ${boardHeightFor(version)}" role="group" aria-label="${escape(ownLabel)}">
-    <defs><linearGradient id="ivory-wheel" x2=".5" y2="1"><stop stop-color="#FFFEF8"/><stop offset="1" stop-color="#EDE9DB"/></linearGradient><linearGradient id="wheel-hub" x2="0" y2="1"><stop stop-color="#FFFFFF"/><stop offset="1" stop-color="#D9DEDC"/></linearGradient></defs>
-    <g aria-hidden="true" fill="none" stroke="#07384D" stroke-width="${2*NOTCH_RADIUS}" stroke-linecap="round">${links}${inputs}<path d="M${mirror(115)} 435V479"/></g>
+  return `<svg xmlns="http://www.w3.org/2000/svg" class="game-board${onePiece ? ' one-piece-board' : ''}" viewBox="0 0 360 ${boardHeightFor(version)}" role="group" aria-label="${escape(ownLabel)}">
+    <defs><linearGradient id="ivory-wheel" x2=".5" y2="1"><stop stop-color="#FFFEF8"/><stop offset="1" stop-color="#EDE9DB"/></linearGradient><linearGradient id="wheel-hub" x2="0" y2="1"><stop stop-color="#FFFFFF"/><stop offset="1" stop-color="#D9DEDC"/></linearGradient>${onePiece ? onePieceBoardDefs : ''}</defs>
+    <g${onePiece ? ' class="one-piece-channels"' : ''} aria-hidden="true" fill="none" stroke="#07384D" stroke-width="${2*NOTCH_RADIUS}" stroke-linecap="round">${links}${inputs}<path d="M${mirror(115)} 435V479"/></g>
     <g class="board-fixed" pointer-events="none" aria-hidden="true">${ramps}${tray}</g>
-    ${wheels.map(wheel => renderWheel(wheel, view, color)).join('')}
+    ${wheels.map(wheel => renderWheel(wheel, view, color, onePiece)).join('')}
     <g class="passage-markers" pointer-events="none" aria-hidden="true" stroke-linecap="round">${markers}</g>
     <g class="board-fixed" pointer-events="none" aria-hidden="true">${wheelLabels}</g>
     <g class="board-tokens" pointer-events="none">${tokens}</g>

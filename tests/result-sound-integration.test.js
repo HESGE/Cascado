@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import vm from 'node:vm';
 import { readFile } from 'node:fs/promises';
-import { createGame } from '../src/engine.js';
+import { createGame, ONE_PIECE_MODE } from '../src/engine.js';
 import { acceptReveal, closeDecidedTurn, newSession } from '../src/flow.js';
 import { configurePlayers, isAIPlayer, singleHumanIndex } from '../src/players.js';
 import { createSeries, seriesOf, seriesGameId, recordSeriesResult, createNextSeriesGame } from '../src/series.js';
@@ -87,7 +87,7 @@ function harness(session = finished(), options = {}) {
     aiSpeed: options.aiSpeed ?? 'normal', selected: null, contacts: new Set(), keys: new Set(), blockers: new Set(),
     statisticsReturn: 'result', brand: '<div>CASCADO</div>',
     acceptReveal, closeDecidedTurn, isAIPlayer, getResultSound, seriesOf, recordSeriesResult, createNextSeriesGame, newSession,
-    tokenTotal, aiSpeedProfile, getGameSet, gameSetIdForGeometry,
+    tokenTotal, aiSpeedProfile, getGameSet, gameSetIdForGeometry, ONE_PIECE_MODE,
     symbol: value => value, escape: value => String(value), focusFirst() {},
     seriesScore: () => '', speedSlot: () => '',
     hasAI: () => [0, 1].some(index => isAIPlayer(context.session.game, index)),

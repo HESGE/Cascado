@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import vm from 'node:vm';
 import { readFile } from 'node:fs/promises';
-import { createGame, rotate } from '../src/engine.js';
+import { createGame, rotate, ONE_PIECE_MODE } from '../src/engine.js';
 import { GEOMETRY_VERSION, PREVIOUS_GEOMETRY_VERSION } from '../src/geometry.js';
 import { newSession } from '../src/flow.js';
 import { AI_LEVELS } from '../src/ai.js';
@@ -23,7 +23,8 @@ function between(start, end) {
   assert.ok(first >= 0 && last > first, `App setup boundary remains available: ${start}`);
   return source.slice(first, last);
 }
-const setup = between('function prepare(', '\nconst phoneIcon =')
+const setup = between('const onePieceBrand =', '\nlet session =')
+  + between('function prepare(', '\nconst phoneIcon =')
   + between('function ensureStatisticsIdentity(', '\nasync function ensureLegacyStatisticsIdentity(')
   + between("app.addEventListener('click',async event=>{", "\napp.addEventListener('keydown'");
 
@@ -82,7 +83,7 @@ function harness(saved = null, options = {}) {
     removeHumanName: (roster, name, suppliedStorage = storage) => removeHumanName(roster, name, suppliedStorage),
     seriesCountPreference: 10, simulationModePreference: 'headless', startModePreference: options.preference ?? 'varied',
     aiGeneration: 0, selected: null, document: { hidden: false }, brand: '<div>CASCADO</div>',
-    createGame, configurePlayers, playerSettings, newSession,
+    createGame, configurePlayers, playerSettings, newSession, ONE_PIECE_MODE,
     normalizeStartConfig, createSeries, seriesOf, seriesGameId, parseSeriesCount,
     configureStartingPosition(game, config, round) {
       calls.push({ game, config: { ...config }, round });
@@ -127,6 +128,35 @@ function harness(saved = null, options = {}) {
     },
   };
 }
+
+test('the home shortcut opens One Piece setup and keeps its characters out of the classic roster', async () => {
+  const h = harness(null,{tokenCountPreference:5,tokenOrderPreference:'shuffled'});
+  await h.click('one-piece');
+  assert.equal(h.defaults().get('game-mode'),ONE_PIECE_MODE);
+  assert.equal(h.saves.length,0);
+  await h.submit({character1:'nami', character2:'crocodile'});
+  const { game } = h.saves[0].session;
+  assert.deepEqual(game.characters, ['nami','crocodile']);
+  assert.deepEqual(game.players.map(player => player.name), ['Nami','Crocodile']);
+  assert.equal(tokenTotal(game.geometryVersion),10);
+  assert.equal(tokenOrderMode(game),'ordered');
+  assert.deepEqual(h.context.humanRoster.names,['Camille','Léa']);
+  h.prepare(true,true);
+  assert.equal(h.defaults().get('game-mode'),ONE_PIECE_MODE);
+  assert.equal(h.defaults().get('character1'),'nami');
+  assert.equal(h.defaults().get('character2'),'crocodile');
+});
+
+test('One Piece setup rejects duplicate or unknown characters before replacing the save', async () => {
+  const saved = newSession(createGame(['Camille','Léa']));
+  const h = harness(saved);
+  h.prepare(true);
+  for (const character2 of ['nami', 'unknown']) {
+    await h.submit({'game-mode':ONE_PIECE_MODE, character1:'nami', character2});
+  }
+  assert.equal(h.context.session,saved);
+  assert.equal(h.saves.length,0);
+});
 
 for (const set of ['reference','miroir-50']) for (const order of ['ordered','shuffled']) for (const automatic of [false,true]) {
   test(`${set}, ${order}, ${automatic ? 'automatic' : 'ordinary'} setup starts five pions per face with one inlet`, async () => {

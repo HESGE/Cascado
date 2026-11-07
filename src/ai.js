@@ -3,7 +3,7 @@ import { createGame, rotate, endTurn, getView, allowedWheels } from './engine.js
 import { aiPositionKey, aiStagnation, defensiveMode, rememberedOptions } from './ai-memory.js';
 import {
   WHEELS, OUTPUT_GATE, gates, inputGates, normalizeAngle, physicalAngleFor,
-  notchAngle, angularDistance, SUPPORTED_GEOMETRY_VERSIONS, LEGACY_GEOMETRY_VERSION,
+  notchAngle, angularDistance, SUPPORTED_GEOMETRY_VERSIONS, GEOMETRY_VERSION, LEGACY_GEOMETRY_VERSION,
   MIRROR_GEOMETRY_VERSION, MIRROR_FIVE_GEOMETRY_VERSION,
 } from './geometry.js';
 import { tokenSeries, tokenNumber, tokenTotal, queueLanes, nextBySeries } from './tokens.js';
@@ -16,6 +16,7 @@ export const AI_LEVELS = Object.freeze([
 ]);
 
 const FACE_GATES = [gates(0), gates(1)];
+const WHEEL_IDS = WHEELS.map(({ id }) => id);
 const PROGRESS = [0, 1, 2, 3, 3, 4, 5];
 const EPSILON = 1e-6;
 const SHUFFLED_PARKING_COST = Object.freeze([400, 0, 0, 0, 3000]);
@@ -94,22 +95,32 @@ function readiness(state, token) {
   return distance;
 }
 
-function score(state) {
+function score(state, anticipate = false) {
   const face = state.faces[state.active];
   if (state.verdict?.reason === 'order') return -1e9;
   if (face.exited.length === tokenTotal(state.geometryVersion)) return 1e9;
+  const required = nextBySeries(face, state.geometryVersion);
   let value = face.exited.length * 100000;
+  const futureWeight = anticipate ? 0.20 : 0.12;
+  const downstream = anticipate ? downstreamPreparation(state, state.active) : null;
   // Keep the next number far more valuable than advancing the rest of the queue.
   // Aligning a source or receiver is useful even when this turn cannot yet transfer.
-  for (const [lane, next] of nextBySeries(face, state.geometryVersion).entries()) {
+  for (const [lane, next] of required.entries()) {
+    if (anticipate && next <= 5) {
+      value -= 0.5 * preparationCost(transferPreparation(state, state.active, lane * 5 + next, WHEEL_IDS, downstream));
+    }
     for (let number = next; number <= 5; number++) {
       const token = lane * 5 + number;
-      const weight = 0.12 ** (number - next);
+      const weight = futureWeight ** (number - next);
       value += weight * (PROGRESS[location(face, token).wheel] * 1200 - readiness(state, token));
     }
   }
+  if (anticipate) {
+    for (const token of face.slots[4]) {
+      if (token !== null && tokenNumber(token) > required[tokenSeries(token)]) value -= 3000;
+    }
+  }
   if (state.shuffledStart) {
-    const required = nextBySeries(face, state.geometryVersion);
     for (const [lane, queue] of queueLanes(face, state.geometryVersion).entries()) {
       // Loading earlier heads makes the next required number accessible.
       const blockers = queue.indexOf(lane * 5 + required[lane]);
@@ -128,7 +139,7 @@ function score(state) {
   return value;
 }
 
-function candidates(state, legal) {
+function candidates(state, legal, anticipate = false) {
   const faceIndex = state.active;
   const face = state.faces[faceIndex];
   const targets = [];
@@ -163,9 +174,12 @@ function candidates(state, legal) {
   for (let notch = 0; notch < face.slots[4].length; notch++) {
     if (face.slots[4][notch] !== null) add(5, notch, OUTPUT_GATE);
   }
-  // If the only relevant wheels are forbidden, prepare an empty receiver for
-  // the next token, rather than spinning an arbitrary wheel back and forth.
-  if (!targets.length) {
+  // A blocked entrance or next transfer can make downstream preparation
+  // useful even when the other series already offers a different move.
+  const prepareBlocked = anticipate && state.engaged === null && state.lastWheel !== null
+    && nextBySeries(face, state.geometryVersion).some((next, lane) => next <= 5
+      && transferPreparation(state, faceIndex, lane * 5 + next, legal).blocked > 0);
+  if (!targets.length || prepareBlocked) {
     for (const gate of FACE_GATES[faceIndex]) {
       for (let notch = 0; notch < face.slots[gate.to - 1].length; notch++) {
         if (face.slots[gate.to - 1][notch] === null) add(gate.to, notch, gate.targetAngle);
@@ -176,11 +190,11 @@ function candidates(state, legal) {
   return targets;
 }
 
-function rankedMoves(state, legal) {
-  const ranked = candidates(state, legal).map(move => {
+function rankedMoves(state, legal, anticipate = false) {
+  const ranked = candidates(state, legal, anticipate).map(move => {
     const after = copyPosition(state);
-    const accepted = rotate(after, move.wheel, move.delta);
-    return { ...move, after, value: accepted ? score(after) : -Infinity };
+    const accepted = rotate(after, move.wheel, move.delta, { stopOnVerdict: anticipate });
+    return { ...move, after, value: accepted ? score(after, anticipate) : -Infinity };
   }).filter(move => Math.abs(move.delta) >= 0.5 || move.after.events.some(event =>
     event.transfers.some(transfer => transfer.face === state.active)))
     // Quantized keys form a stable, transitive order. Sub-microdegree floating
@@ -191,21 +205,22 @@ function rankedMoves(state, legal) {
       || Math.round(a.delta / EPSILON) - Math.round(b.delta / EPSILON));
   if (ranked.length) return ranked;
   const after = copyPosition(state);
-  rotate(after, legal[0], 6);
-  return [{ wheel: legal[0], delta: 6, after, value: score(after) }];
+  rotate(after, legal[0], 6, { stopOnVerdict: anticipate });
+  return [{ wheel: legal[0], delta: 6, after, value: score(after, anticipate) }];
 }
 
-function continuation(state, depth, beam) {
-  if (!depth || state.verdict || state.faces[state.active].exited.length === tokenTotal(state.geometryVersion)) return score(state);
+function continuation(state, depth, beam, anticipate = false) {
+  if (!depth || state.verdict || state.faces[state.active].exited.length === tokenTotal(state.geometryVersion)) return score(state, anticipate);
   const next = copyPosition(state);
   next.engaged = null;
   // Future opponent rotations are unknown. This is preparation on our own
   // board, never a prediction using an unseen opponent position.
   next.lastWheel = null;
-  const ranked = rankedMoves(next, WHEELS.map(({ id }) => id));
-  let best = score(next);
+  const ranked = rankedMoves(next, WHEEL_IDS, anticipate);
+  let best = score(next, anticipate);
   for (const move of ranked.slice(0, beam)) {
-    best = Math.max(best, continuation(move.after, depth - 1, beam) - Math.abs(move.delta) * 0.003);
+    const projected = depth === 1 ? move.value : continuation(move.after, depth - 1, beam, anticipate);
+    best = Math.max(best, projected - Math.abs(move.delta) * 0.003);
   }
   return best;
 }
@@ -227,15 +242,38 @@ function defensiveValue(state, owner) {
   // After a real hypothetical opposing turn, its chosen wheel is forbidden
   // to us. During our unfinished rotation, the next opposing wheel is unknown.
   const legal = state.active === owner && state.engaged === null
-    ? allowedWheels(state) : WHEELS.map(wheel => wheel.id);
+    ? allowedWheels(state) : WHEEL_IDS;
   const preparation = transferPreparation(state, owner, next, legal);
-  planned -= preparation.steps * 120 + preparation.blocked * 180 + preparation.remaining * 80;
+  planned -= preparationCost(preparation);
   return planned - own.slots[4].filter(token => token !== null && token > next).length * 3000;
+}
+
+function preparationCost({ steps, blocked, remaining }) {
+  return steps * 120 + blocked * 180 + remaining * 80;
+}
+
+function downstreamPreparation(state, owner) {
+  const face = state.faces[owner];
+  // Beyond the first transfer, a received pion needs a source rotation at
+  // each stage. Count the empty receivers still needing preparation along
+  // the cheapest downstream route, even before a pion enters the board.
+  const downstream = [0, 8, 8, 8, 8, 1];
+  for (let from = 4; from >= 1; from--) {
+    for (const gate of FACE_GATES[owner].filter(gate => gate.from === from)) {
+      for (let seat = 0; seat < face.slots[gate.to - 1].length; seat++) {
+        if (face.slots[gate.to - 1][seat] !== null) continue;
+        const angle = notchAngle(owner, gate.to, seat, state.angles[gate.to - 1], state.geometryVersion);
+        const receiver = angularDistance(angle, gate.targetAngle) > 1 ? 1 : 0;
+        downstream[from] = Math.min(downstream[from], 1 + receiver + downstream[gate.to]);
+      }
+    }
+  }
+  return downstream;
 }
 
 /** Estimate distinct source/receiver adjustments before the next transfer.
  * This is planning cost, never a relaxation of physical passage conditions. */
-function transferPreparation(state, owner, token, legal) {
+function transferPreparation(state, owner, token, legal, downstream) {
   const face = state.faces[owner], at = location(face, token);
   const angle = (wheel, notch) => notchAngle(owner, wheel, notch,
     state.angles[wheel - 1], state.geometryVersion);
@@ -245,22 +283,13 @@ function transferPreparation(state, owner, token, legal) {
   });
   if (at.wheel === 6) return { steps: 0, blocked: 0, remaining: 0 };
   if (at.wheel === 5) return { ...adjustment(5, angularDistance(angle(5, at.notch), OUTPUT_GATE)), remaining: 0 };
-  // Beyond the first transfer, a received pion needs a source rotation at
-  // each stage. Count the empty receivers still needing preparation along
-  // the cheapest downstream route, even before a pion enters the board.
-  const downstream = [0, 8, 8, 8, 8, 1];
-  for (let from = 4; from >= 1; from--) {
-    for (const gate of FACE_GATES[owner].filter(gate => gate.from === from)) {
-      for (let seat = 0; seat < face.slots[gate.to - 1].length; seat++) {
-        if (face.slots[gate.to - 1][seat] !== null) continue;
-        const receiver = angularDistance(angle(gate.to, seat), gate.targetAngle) > 1 ? 1 : 0;
-        downstream[from] = Math.min(downstream[from], 1 + receiver + downstream[gate.to]);
-      }
-    }
-  }
+  downstream ??= downstreamPreparation(state, owner);
   if (at.wheel === 0) {
-    if (face.queue[0] !== token || face.slots[0][0] !== null) return { steps: 3, blocked: 1, remaining: downstream[1] };
-    return { ...adjustment(1, angularDistance(angle(1, 0), inputGates(state.geometryVersion)[0])), remaining: downstream[1] };
+    const lane = tokenSeries(token);
+    if (face.queue.find(id => tokenSeries(id) === lane) !== token || face.slots[0][0] !== null) {
+      return { steps: 3, blocked: 1, remaining: downstream[1] };
+    }
+    return { ...adjustment(1, angularDistance(angle(1, 0), inputGates(state.geometryVersion)[lane])), remaining: downstream[1] };
   }
   let best = { steps: 3, blocked: 1, remaining: 8 };
   for (const gate of FACE_GATES[owner].filter(gate => gate.from === at.wheel)) {
@@ -270,8 +299,7 @@ function transferPreparation(state, owner, token, legal) {
       const target = adjustment(gate.to, angularDistance(angle(gate.to, seat), gate.targetAngle));
       const route = { steps: source.steps + target.steps, blocked: source.blocked + target.blocked,
         remaining: downstream[gate.to] };
-      const cost = plan => plan.steps * 120 + plan.blocked * 180 + plan.remaining * 80;
-      if (cost(route) < cost(best)) best = route;
+      if (preparationCost(route) < preparationCost(best)) best = route;
     }
   }
   return best;
@@ -408,8 +436,8 @@ function chooseDefensiveMove(view, level, options) {
   const defended = guarded.filter(move => move.threats === minimumThreats);
   const rootLimit = level === 'expert' ? 12 : 8;
   const replyLimit = level === 'expert' ? 5 : 3;
-  // Preserve useful short preparations. Explore alternative wheels only
-  // once real observations show repeated turns without moving a pion.
+  // Explore alternative wheels on a blocked route or after repeated turns
+  // without moving a pion.
   const blockedNext = transferPreparation(state, owner, state.faces[owner].exited.length + 1, legal).blocked > 0;
   const shortlist = stagnation.turns >= 4 || blockedNext
     ? diverseMoves(state, defended, owner, rootLimit) : defended.slice(0, rootLimit);
@@ -449,11 +477,13 @@ export function chooseAIMove(view, level = 'normal', options = {}) {
   const legal = [...new Set(view.allowedWheels)].filter(wheel => Number.isInteger(wheel) && wheel >= 1 && wheel <= 5);
   if (!legal.length) return null;
   if (defensiveMode(view, level)) return chooseDefensiveMove(view, level, options);
+  const anticipate = view.tokenOrder !== 'shuffled' && (level === 'hard' || level === 'expert')
+    && (view.geometryVersion === GEOMETRY_VERSION || view.geometryVersion === MIRROR_GEOMETRY_VERSION);
   const config = level === 'expert' && (view.geometryVersion === MIRROR_GEOMETRY_VERSION
     || view.geometryVersion === MIRROR_FIVE_GEOMETRY_VERSION)
     ? MIRROR_EXPERT_CONFIG : CONFIG[level] ?? CONFIG.normal;
   const state = virtualGame(view);
-  const ranked = rankedMoves(state, legal);
+  const ranked = rankedMoves(state, legal, anticipate);
   const safe = ranked.filter(move => move.value > -1e9);
   const pool = safe.length ? safe : ranked;
   let chosen;
@@ -468,7 +498,7 @@ export function chooseAIMove(view, level = 'normal', options = {}) {
   } else {
     let best = -Infinity;
     for (const move of pool.slice(0, config.beam * 2)) {
-      const projected = continuation(move.after, config.depth - 1, config.beam);
+      const projected = continuation(move.after, config.depth - 1, config.beam, anticipate);
       // A nearer gain beats the same gain delayed. Root safety always wins.
       const value = projected * 0.85 + move.value * 0.15 - Math.abs(move.delta) * 0.003;
       if (value > best + EPSILON) { best = value; chosen = move; }

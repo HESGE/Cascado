@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { AI_LEVELS, chooseAIMove } from '../src/ai.js';
 import { createGame, getView, rotate, endTurn } from '../src/engine.js';
-import { GEOMETRY_VERSION, MIRROR_GEOMETRY_VERSION, OUTPUT_GATE, gates, physicalAngleFor, angularDistance } from '../src/geometry.js';
+import { GEOMETRY_VERSION, MIRROR_GEOMETRY_VERSION, OUTPUT_GATE, gates, physicalAngleFor, notchAngle, angularDistance } from '../src/geometry.js';
 import { nextBySeries, tokenNumber, tokenSeries, tokenTotal } from '../src/tokens.js';
 
 function freeze(value) {
@@ -59,6 +59,18 @@ function gameFromOwnView(view) {
   game.lastWheel = view.lastWheel;
   game.engaged = view.engaged;
   return game;
+}
+
+function assertProgressOrPreparation(game, move) {
+  const owner = game.active;
+  const ownTransfer = game.events.some(event => event.transfers.some(transfer => transfer.face === owner));
+  const receivingSeat = gates(owner).some(gate => gate.to === move.wheel &&
+    game.faces[owner].slots[move.wheel - 1].some((token, seat) => token === null &&
+      angularDistance(notchAngle(owner, move.wheel, seat, game.angles[move.wheel - 1], game.geometryVersion),
+        gate.targetAngle) < 1e-6));
+  assert.ok(ownTransfer || receivingSeat, 'advance a pion or center a free receiver on a real passage');
+  assert.equal(game.verdict, null);
+  assertOwnConservation(game, owner);
 }
 
 test('Expert adds a stable saved identifier while preserving the three existing levels', () => {
@@ -154,51 +166,40 @@ test('Expert can resume its own real interrupted rotation on the engaged wheel',
   }
 });
 
-test('the deeper horizon compares real trajectories that end at the same wheel angle', () => {
-  // Own view from the development duel 0001, turn13; no held-out position.
-  // The receiver catches the token in a different seat on the two trajectories.
+test('Difficile and Expert advance a waiting pion or prepare its downstream route', () => {
+  // Own view from development duel 0001, turn 13. Wheel 2 can receive pion 1,
+  // or another legal wheel can prepare the path it will need later.
   const view = freeze({ faceIndex: 0, geometryVersion: GEOMETRY_VERSION,
     angles: [60.56151032532847, 53.230975101190324, 14.145795494102913, 74.60000000000002, 284.14579549410314],
     queue: [2, 3, 4, 5, 7, 8, 9, 10], exited: [6],
     slots: [[1], [null, null, null], [null, null], [null, null, null, null], [null, null, null, null, null]],
     engaged: null, lastWheel: 3, allowedWheels: [1, 2, 4, 5] });
-  const hardMove = chooseAIMove(view, 'hard');
-  const expertMove = chooseAIMove(view, 'expert');
-  assert.equal(hardMove.wheel, 2);
-  assert.equal(expertMove.wheel, 2);
-  assert.ok(hardMove.localDelta < 0 && expertMove.localDelta > 0);
-  const hard = gameFromOwnView(view);
-  const expert = gameFromOwnView(view);
-  apply(hard, hardMove);
-  apply(expert, expertMove);
-  assert.ok(angularDistance(hard.angles[1], expert.angles[1]) < 1e-6);
-  assert.equal(hard.faces[0].slots[1][2], 1);
-  assert.equal(expert.faces[0].slots[1][1], 1);
-  assertOwnConservation(hard, 0);
-  assertOwnConservation(expert, 0);
+  for (const level of ['hard', 'expert']) {
+    const game = gameFromOwnView(view);
+    const move = chooseAIMove(view, level);
+    apply(game, move);
+    assertProgressOrPreparation(game, move);
+  }
 });
 
-test('the fifth own move can justify loading the other series while preserving the waiting predecessor', () => {
+test('Expert can load the other series while preserving the waiting predecessor', () => {
   // Development duel0001, turn15: next yellow1 waits on wheel2, green2 can load.
   const view = freeze({ faceIndex: 0, geometryVersion: GEOMETRY_VERSION,
     angles: [60.56151032532847, 240.56151032532853, 14.145795494102913, 74.60000000000002, 53.14579549410291],
     queue: [2, 3, 4, 5, 7, 8, 9, 10], exited: [6],
     slots: [[null], [null, null, 1], [null, null], [null, null, null, null], [null, null, null, null, null]],
     engaged: null, lastWheel: 5, allowedWheels: [1, 2, 3, 4] });
-  const hard = gameFromOwnView(view);
   const expert = gameFromOwnView(view);
-  apply(hard, chooseAIMove(view, 'hard'));
   apply(expert, chooseAIMove(view, 'expert'));
-  assert.ok(hard.faces[0].queue.includes(7));
   assert.equal(expert.faces[0].slots[0][0], 7);
   assert.equal(expert.faces[0].slots[1][2], 1);
   assert.equal(expert.verdict, null);
   assertOwnConservation(expert, 0);
 });
 
-test('both Expert set profiles load a safe next token with the tighter passage rule', () => {
-  // Saved development Miroir duel0005, turn5. With 26-unit openings, both
-  // search profiles prefer loading series two while its predecessor waits.
+test('both Expert set profiles progress when one series waits on a forbidden wheel', () => {
+  // Saved development Miroir duel 0005, turn 5. Loading series two and
+  // preparing a receiver for series one are both useful legal responses.
   const view = freeze({ faceIndex: 0, geometryVersion: MIRROR_GEOMETRY_VERSION,
     angles: [60.56151032532847, 240.56151032532853, 158.5, 40.20016388609531, 268.70000000000005],
     queue: [2, 3, 4, 5, 6, 7, 8, 9, 10], exited: [],
@@ -207,12 +208,32 @@ test('both Expert set profiles load a safe next token with the tighter passage r
   for (const geometryVersion of [MIRROR_GEOMETRY_VERSION, GEOMETRY_VERSION]) {
     const ownView = { ...view, geometryVersion };
     const game = gameFromOwnView(ownView);
-    apply(game, chooseAIMove(ownView, 'expert'));
-    assert.equal(game.faces[0].slots[0][0], 6);
-    assert.equal(game.faces[0].slots[1][0], 1);
-    assert.equal(game.verdict, null);
-    assertOwnConservation(game, 0);
+    const move = chooseAIMove(ownView, 'expert');
+    apply(game, move);
+    assertProgressOrPreparation(game, move);
   }
+});
+
+test('Difficile loads the other series before the forbidden wheel is released', () => {
+  // Reference development duel B, pose 2, turn 46. Yellow 2 waits on
+  // wheel 2, but green 3 (token 8) is ready at the other entrance.
+  const game = gameFromOwnView({ faceIndex: 0, geometryVersion: GEOMETRY_VERSION,
+    angles: [60.56151032532847, 355.2001638860953, 284.145795494103, 45.718539904489035, 335.71853990448903],
+    queue: [3, 4, 5, 8, 9, 10], exited: [1, 6, 7],
+    slots: [[null], [null, null, 2], [null, null], [null, null, null, null], [null, null, null, null, null]],
+    engaged: null, lastWheel: 2 });
+  const view = freeze(getView(game, 0));
+  assert.deepEqual(view.nextBySeries, [2, 3]);
+  assert.equal(view.allowedWheels.includes(2), false);
+  const old = structuredClone(game);
+  apply(old, { wheel: 4, localDelta: 39.481623981606276 });
+  assert.ok(old.faces[0].queue.includes(8), 'the recorded 1.57 move leaves green 3 queued');
+
+  const move = chooseAIMove(view, 'hard');
+  apply(game, move);
+  assert.equal(game.faces[0].slots[0][0], 8);
+  assert.equal(game.faces[0].slots[1][2], 2);
+  assertProgressOrPreparation(game, move);
 });
 
 test('Expert completes both full queues from unprepared angles through the real physics', () => {

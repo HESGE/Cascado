@@ -145,26 +145,19 @@ for (const owner of [0, 1]) {
   });
 }
 
-// Frozen pre-defensive 1.54 decisions. The defensive branch must not change
-// ten-pion games or the separately supported shuffled five-pion strategy.
+// Frozen pre-defensive 1.54 decisions for the shuffled five-pion strategy.
 const unchanged = [
-  ['reference', 10, 0, 'hard', 66.5], ['reference', 10, 0, 'expert', 66.5],
-  ['reference', 10, 1, 'hard', 8.5], ['reference', 10, 1, 'expert', 8.5],
-  ['miroir-50', 10, 0, 'hard', 66.5], ['miroir-50', 10, 0, 'expert', -293.5],
-  ['miroir-50', 10, 1, 'hard', -246.5], ['miroir-50', 10, 1, 'expert', -246.5],
-  ['reference', 5, 0, 'hard', 6.5], ['reference', 5, 0, 'expert', 6.5],
-  ['reference', 5, 1, 'hard', 68.5], ['reference', 5, 1, 'expert', 68.5],
-  ['miroir-50', 5, 0, 'hard', 6.5], ['miroir-50', 5, 0, 'expert', 6.5],
-  ['miroir-50', 5, 1, 'hard', 173.5], ['miroir-50', 5, 1, 'expert', 173.5],
+  ['reference', 0, 'hard', 6.5], ['reference', 0, 'expert', 6.5],
+  ['reference', 1, 'hard', 68.5], ['reference', 1, 'expert', 68.5],
+  ['miroir-50', 0, 'hard', 6.5], ['miroir-50', 0, 'expert', 6.5],
+  ['miroir-50', 1, 'hard', 173.5], ['miroir-50', 1, 'expert', 173.5],
 ];
-test('ten-pion and shuffled-five decisions retain their frozen pre-defensive actions', () => {
-  for (const [set, count, owner, level, delta] of unchanged) {
-    const game = createGame(['A', 'B'], owner, getGameSet(set, count).geometryVersion);
+test('shuffled five-pion decisions retain their frozen pre-defensive actions', () => {
+  for (const [set, owner, level, delta] of unchanged) {
+    const game = createGame(['A', 'B'], owner, getGameSet(set, 5).geometryVersion);
     game.angles = [218.5, 149, 54, 317, 205];
-    if (count === 5) {
-      game.tokenStart = { mode: 'shuffled', seed: 1 };
-      game.faces[owner].queue = [3, 1, 5, 4, 2];
-    }
+    game.tokenStart = { mode: 'shuffled', seed: 1 };
+    game.faces[owner].queue = [3, 1, 5, 4, 2];
     assert.deepEqual(chooseAIMove(freeze(getView(game, owner)), level), { wheel: 1, localDelta: delta });
   }
 });

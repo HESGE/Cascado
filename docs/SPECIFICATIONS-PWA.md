@@ -1,8 +1,14 @@
 # Cascado — Spécifications de la PWA
 
-Version 1.57 · 7 novembre 2026 · Langue du produit : français
+Version 1.58 · 7 novembre 2026 · Langue du produit : français
 
 Statut : V1 développée à la demande de l’utilisateur le 28 octobre 2026. La version 1.23 retient **ddc-v1.5** pour les nouvelles parties : décalages estimés de la vidéo vers 298–299 s, deux entrées et deux séries de 1 à 5 sur chaque face. Ce gabarit ne prétend ni reproduire exactement le jeu filmé ni garantir l’équivalence des faces. La version 1.50 porte le seuil de passage à 26 unités libres sur 28. Les parties et séries déjà enregistrées en **ddc-v1.4** ou **ddc-v1.3** gardent leur calage, leur entrée unique et leurs cinq jetons. La version **1.28** rétablit les sons, ajoute un clic de cran à l’aimantation, renforce celle-ci et élargit la saisie autour des roues sans changer les règles de passage. Le glisser circulaire et l’alternative clavier sont conservés. Les preuves exécutées et essais restant à effectuer sont consignés dans la [fiche de recette](RECETTE-V1.md).
+
+### Anticipation en deux séries — version 1.58
+
+En dix pions ordonnés sur Référence et Miroir 50, Difficile et Expert évaluent séparément le prochain numéro de chaque série. Une série terminée sort de l’évaluation. Le parcours des réceptions libres jusqu’à la sortie est calculé une fois par position et partagé par les deux séries. Le chargement utilise la tête et l’entrée de la série concernée. Les deux entrées partagent le même logement sur la roue 1.
+
+L’évaluation garde le bonus de sortie de 100 000 points du format dix pions. Elle applique la moitié du coût de préparation de la 1.57 et un poids de 0,20 par rang pour les numéros futurs. Un pion prématuré sur la roue 5 est pénalisé selon le prochain numéro de sa propre série. La recherche de rotations propres conserve les profondeurs et les plafonds de candidats du format dix pions. À la racine, un transfert bloqué peut ajouter des alignements de réceptions sur les roues autorisées avant la sélection des candidats. Les verdicts et l’exception du dernier pion utilisent le moteur de jeu.
 
 ### Anticipation des blocages de l’IA — version 1.57
 

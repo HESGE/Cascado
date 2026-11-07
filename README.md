@@ -1,5 +1,9 @@
 # Cascado — V1
 
+**Version 1.58 — 7 novembre 2026.** En dix pions dans l’ordre, Difficile et Expert préparent les passages en tenant compte du prochain numéro de chacune des deux séries. Ils estiment les rotations nécessaires et les réceptions libres jusqu’à la sortie. Si la roue interdite bloque une série, la sélection peut inclure la préparation d’un récepteur en aval. Le calcul utilise la recherche du format dix pions et les observations de sa propre face.
+
+Le réglage retient la priorité historique aux sorties et applique un poids modéré aux préparations. Sur 104 duels Difficile contre la 1.57 figée, avec 13 départs inédits par set et quatre permutations par départ, la nouvelle IA gagne 32–20 en Référence et 31–21 sur Miroir 50. Les 104 traces ont été rejouées. Il y a 103 sorties complètes et une erreur d’ordre de la 1.57. En jouant deuxième, la nouvelle gagne 27/52 contre 16/52. Les séquences d’au moins cinq tours du joueur sans transfert sur sa face passent de 0 à 8 en Référence et de 5 à 1 sur Miroir 50. La latence médiane sous charge passe d’environ 97 à 102 ms. Les 983 tests actifs et les quatre parcours Chromium/WebKit passent.
+
 **Version 1.57 — 7 novembre 2026.** À cinq pions dans l’ordre, Difficile et Expert préparent les passages suivants avant une stagnation prolongée. L’évaluation compte les roues à ajuster pour le prochain transfert, le coût d’une roue nécessaire interdite, puis les réceptions libres à préparer sur un chemin vers la sortie. Ce dernier calcul reste borné aux cinq roues et six passages du plateau. Une roue critique interdite peut déclencher la diversification dès la première observation.
 
 Les pions suivants prennent davantage de poids dans la préparation (0,35 par rang au lieu de 0,12), et le bonus non terminal d’un pion sorti passe de 100 000 à 12 000 pour permettre une préparation rentable avant la sortie suivante. La victoire immédiate et le filtre des mauvaises sorties gardent leur priorité. Les réponses simulées reviennent au tour propre avant l’évaluation de la mobilité, pour respecter la roue alors interdite. La profondeur et les nombres de branches ne changent pas ; le calcul heuristique supplémentaire n’est pas un coût nul. Seule la face autorisée est utilisée. Les autres formats, ordres et niveaux conservent leur politique.
@@ -50,7 +54,7 @@ La version **1.41** place le **Set de jeu** et la **Position des roues au dépar
 
 La version **1.40** retire l’entrée « Duel automatique » de l’accueil et regroupe Statistiques, Partager, Installer et l’aide au son dans « Options ». Pour observer une partie entre deux IA, choisir IA pour les deux joueurs dans « Nouvelle partie ». Les règles proposent un aperçu lent en 3D des deux faces, avec pause et changement de face ; la préférence de réduction des animations est respectée. Les séries déjà sauvegardées et les outils de simulation restent disponibles.
 
-Version documentaire 1.57 · 7 novembre 2026
+Version documentaire 1.58 · 7 novembre 2026
 
 [Jouer à Cascado](https://hesge.github.io/Cascado/) · [Code source sur GitHub](https://github.com/HESGE/Cascado)
 

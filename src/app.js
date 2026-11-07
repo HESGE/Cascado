@@ -258,7 +258,7 @@ function renderHome() {
     <div class="actions">${session ? '<button class="primary" data-action="resume">Reprendre la partie</button>' : ''}<button class="${session ? 'secondary' : 'primary'}" data-action="new">Nouvelle partie</button><button class="secondary" data-action="rules">Comment jouer</button><button class="secondary" data-action="options">Options</button></div>
     <div class="install-status" id="install-status">${offlineStatus()}</div>
     ${updateAvailable ? '<button class="secondary" data-action="update">Une mise à jour est disponible</button>' : ''}
-    <p class="muted local-note">Sans compte · Partie enregistrée sur cet appareil<br><span data-release>Version 1.57</span></p></section>`;
+    <p class="muted local-note">Sans compte · Partie enregistrée sur cet appareil<br><span data-release>Version 1.58</span></p></section>`;
 }
 
 function renderOptions() {

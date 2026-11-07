@@ -3,9 +3,10 @@ import { createGame, getView, rotate } from './engine.js';
 import { chooseAIMove, AI_LEVELS } from './ai.js';
 import { configurePlayers, isAIPlayer, playerSettings } from './players.js';
 import { newSession, acceptReveal, transmit } from './flow.js';
-import { GEOMETRY_VERSION, SUPPORTED_GEOMETRY_VERSIONS, WHEELS } from './geometry.js';
+import { GEOMETRY_VERSION, SUPPORTED_GEOMETRY_VERSIONS, WHEELS, baseGeometryVersion } from './geometry.js';
 import { tokenTotal } from './tokens.js';
 import { isValidStartingTokens } from './starting-tokens.js';
+import { isValidAIMemory, rememberAIPosition } from './ai-memory.js';
 import { configureGameSet, isValidStartingPosition, ORIGINAL_START_MODE, MIROIR50_START_MODE,
   miroir50ScheduleEntry } from './starting-position.js';
 import { getGameSet, gameSetIdForGeometry, isValidGameSet } from './game-sets.js';
@@ -27,7 +28,7 @@ export function isSimulationSession(session) {
       !wheel(game.engaged) || !wheel(game.lastWheel) ||
       !Array.isArray(game.angles) || game.angles.length !== 5 || !Array.from(game.angles).every(Number.isFinite) ||
       !Array.isArray(game.events) || !Array.isArray(game.faces) || game.faces.length !== 2) return false;
-  if (!isValidGameSet(game)) return false;
+  if (!isValidGameSet(game) || !isValidAIMemory(game)) return false;
   const total = tokenTotal(game.geometryVersion);
   for (const face of game.faces) {
     if (!face || !Array.isArray(face.queue) || !Array.isArray(face.exited) ||
@@ -83,7 +84,10 @@ export function playSimulationTurn(session, { random = Math.random, keepEvents =
   if (session.phase === 'passed' && acceptReveal(session) === 'result') return result();
   const player = game.active;
   const turn = game.turn;
-  const move = chooseAIMove(getView(game, player), playerSettings(game.players[player]).level, { random });
+  const view = getView(game, player);
+  const level = playerSettings(game.players[player]).level;
+  const options = rememberAIPosition(game, player, view, level);
+  const move = chooseAIMove(view, level, { ...options, random });
   if (!move || !Number.isFinite(move.localDelta) || Math.abs(move.localDelta) < 1e-9) {
     return { status: 'blocked', player, turn, move: null, reason: 'no-legal-move' };
   }
@@ -98,33 +102,41 @@ export function playSimulationTurn(session, { random = Math.random, keepEvents =
 }
 
 function settings({ count = 10, levels = ['normal', 'normal'], firstStarter = 0,
-  seed = 1, maxTurns = 10000, startMode, geometryVersion, gameSetId } = {}) {
+  seed = 1, maxTurns = 10000, startMode, geometryVersion, gameSetId, tokenCount } = {}) {
   const target = parseSeriesCount(count);
   if (target === null) throw new TypeError('Le nombre de parties doit être compris entre 1 et 1 000.');
   if (!Array.isArray(levels) || levels.length !== 2 || !levels.every(level => LEVELS.has(level))) {
     throw new TypeError('Chaque IA doit être easy, normal, hard ou expert.');
   }
   if (![0, 1].includes(firstStarter)) throw new TypeError('Le premier joueur doit être 0 ou 1.');
+  if (geometryVersion !== undefined && !SUPPORTED_GEOMETRY_VERSIONS.includes(geometryVersion)) {
+    throw new TypeError('Version de géométrie incompatible.');
+  }
+  if (tokenCount !== undefined && ![5, 10].includes(tokenCount)) {
+    throw new TypeError('Le nombre de pions doit être 5 ou 10.');
+  }
+  tokenCount ??= geometryVersion === undefined ? 10 : tokenTotal(geometryVersion);
   let definition;
   try { definition = getGameSet(gameSetId === undefined
-    ? gameSetIdForGeometry(geometryVersion ?? GEOMETRY_VERSION) : gameSetId); }
+    ? gameSetIdForGeometry(geometryVersion ?? GEOMETRY_VERSION) : gameSetId, tokenCount); }
   catch { throw new TypeError('Set de jeu incompatible.'); }
   gameSetId = definition.id;
   if (geometryVersion === undefined) geometryVersion = definition.geometryVersion;
   if (!SUPPORTED_GEOMETRY_VERSIONS.includes(geometryVersion)) throw new TypeError('Version de géométrie incompatible.');
   if (!isValidGameSet({ gameSetId, geometryVersion })) throw new TypeError('Le set et la géométrie sont incompatibles.');
+  if (tokenTotal(geometryVersion) !== tokenCount) throw new TypeError('Le nombre de pions et la géométrie sont incompatibles.');
   if (startMode === undefined) startMode = gameSetId === 'miroir-50' ? MIROIR50_START_MODE : 'classic';
   if (gameSetId === 'miroir-50' ? startMode !== MIROIR50_START_MODE
     : !['classic', 'varied', ORIGINAL_START_MODE].includes(startMode)) {
     throw new TypeError('Miroir 50 exige son lot fixe ; Référence accepte classic, varied ou original-v1.');
   }
-  if (startMode === ORIGINAL_START_MODE && geometryVersion !== 'ddc-v1.5') {
+  if (startMode === ORIGINAL_START_MODE && baseGeometryVersion(geometryVersion) !== GEOMETRY_VERSION) {
     throw new TypeError('Le départ original-v1 exige le profil ddc-v1.5.');
   }
   if (!Number.isSafeInteger(seed)) throw new TypeError('La graine doit être un entier sûr.');
   if (!Number.isSafeInteger(maxTurns) || maxTurns < 1) throw new TypeError('La limite de tours doit être un entier positif.');
   return { count: target, levels: [...levels], firstStarter, seed: seed >>> 0, maxTurns, startMode, geometryVersion,
-    gameSetId, gameSetLabel: definition.label };
+    gameSetId, gameSetLabel: definition.label, tokenCount };
 }
 
 /**
@@ -166,6 +178,7 @@ export async function runSimulation(options = {}, hooks = {}) {
       averageTurns: series.completed ? series.totalTurns / series.completed : 0,
       levels: [...config.levels], firstStarter: config.firstStarter, seed: config.seed,
       startMode: config.startMode, geometryVersion: config.geometryVersion,
+      ...(config.tokenCount === 5 ? { tokenCount: 5 } : {}),
       ...setMetadata,
       positionCount: completedPositions.size,
       unfinished,

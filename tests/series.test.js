@@ -5,7 +5,7 @@ import { configurePlayers } from '../src/players.js';
 import { configureStartingPosition, configureGameSet, startingAnglesFor, ORIGINAL_START_MODE,
   MIROIR50_START_MODE, miroir50ScheduleEntry } from '../src/starting-position.js';
 import { PREVIOUS_GEOMETRY_VERSION, SUPPORTED_GEOMETRY_VERSIONS, MIRROR_GEOMETRY_VERSION,
-  wheelsFor } from '../src/geometry.js';
+  wheelsFor, baseGeometryVersion } from '../src/geometry.js';
 import { tokenTotal } from '../src/tokens.js';
 import { createSeries, seriesOf, seriesGameId, parseSeriesCount,
   recordSeriesResult, createNextSeriesGame } from '../src/series.js';
@@ -316,20 +316,21 @@ test('original-v1 series preserve the reconstructed pose across renewed games an
   }
 });
 
-test('renewed series keep all three stored mechanical profiles and their associated starting protocol', () => {
-  for (const geometryVersion of SUPPORTED_GEOMETRY_VERSIONS.filter(version => version !== MIRROR_GEOMETRY_VERSION)) {
+test('renewed series keep every stored mechanical profile and its associated starting protocol', () => {
+  for (const geometryVersion of SUPPORTED_GEOMETRY_VERSIONS) {
+    const mirror = baseGeometryVersion(geometryVersion) === MIRROR_GEOMETRY_VERSION;
     const game = configurePlayers(createGame(['A', 'B'], 0, geometryVersion), [
       { controller: 'ai', level: 'hard' }, { controller: 'ai', level: 'hard' },
     ]);
     game.series = createSeries(2, { id: 'profile-test' });
     game.statsId = seriesGameId(game.series);
-    configureStartingPosition(game, { mode: 'varied', seed: 42 }, 1);
+    configureStartingPosition(game, { mode: mirror ? MIROIR50_START_MODE : 'varied', seed: 42 }, 1);
     recordSeriesResult(finished(game));
     const next = createNextSeriesGame(game);
     assert.equal(next.geometryVersion, geometryVersion);
     assert.equal(next.faces[0].queue.length, tokenTotal(geometryVersion));
     assert.deepEqual(next.startingAngles, startingAnglesFor(42, 2, geometryVersion));
-    if (geometryVersion === PREVIOUS_GEOMETRY_VERSION) assert.notDeepEqual(next.startingAngles, game.startingAngles);
+    if (mirror || geometryVersion === PREVIOUS_GEOMETRY_VERSION) assert.notDeepEqual(next.startingAngles, game.startingAngles);
     else assert.deepEqual(next.startingAngles, game.startingAngles);
   }
   const unknown = match(2);

@@ -1,9 +1,12 @@
 /** Normative, versioned geometry. Angles are clockwise degrees in screen space. */
 export const GEOMETRY_VERSION = 'ddc-v1.5';
 export const MIRROR_GEOMETRY_VERSION = 'ddc-miroir50-v1';
+export const REFERENCE_FIVE_GEOMETRY_VERSION = 'ddc-v1.5-five';
+export const MIRROR_FIVE_GEOMETRY_VERSION = 'ddc-miroir50-five-v1';
 export const PREVIOUS_GEOMETRY_VERSION = 'ddc-v1.4';
 export const LEGACY_GEOMETRY_VERSION = 'ddc-v1.3';
-export const SUPPORTED_GEOMETRY_VERSIONS = Object.freeze([GEOMETRY_VERSION, PREVIOUS_GEOMETRY_VERSION, LEGACY_GEOMETRY_VERSION, MIRROR_GEOMETRY_VERSION]);
+export const SUPPORTED_GEOMETRY_VERSIONS = Object.freeze([GEOMETRY_VERSION, PREVIOUS_GEOMETRY_VERSION, LEGACY_GEOMETRY_VERSION, MIRROR_GEOMETRY_VERSION,
+  REFERENCE_FIVE_GEOMETRY_VERSION, MIRROR_FIVE_GEOMETRY_VERSION]);
 export const BOARD = Object.freeze({ width: 360, height: 540 });
 export const ANGULAR_TOLERANCE = 1e-6;
 export const TOKEN_RADIUS = 12;
@@ -33,15 +36,25 @@ export const LEGACY_WHEELS = Object.freeze(WHEELS.map((wheel, index) =>
 export const MIRROR_WHEELS = Object.freeze(WHEELS.map((wheel, index) =>
   Object.freeze({ ...wheel, delta: [180, 0, 90, 45, 36][index] })));
 
+/** Token-count variants retain their set's exact mechanical wheel phases. */
+export function baseGeometryVersion(geometryVersion = GEOMETRY_VERSION) {
+  if (geometryVersion === REFERENCE_FIVE_GEOMETRY_VERSION) return GEOMETRY_VERSION;
+  if (geometryVersion === MIRROR_FIVE_GEOMETRY_VERSION) return MIRROR_GEOMETRY_VERSION;
+  if (SUPPORTED_GEOMETRY_VERSIONS.includes(geometryVersion)) return geometryVersion;
+  throw new RangeError('Version de géométrie incompatible.');
+}
+
 export function wheelsFor(geometryVersion = GEOMETRY_VERSION) {
   if (geometryVersion === GEOMETRY_VERSION) return WHEELS;
   if (geometryVersion === PREVIOUS_GEOMETRY_VERSION) return PREVIOUS_WHEELS;
   if (geometryVersion === LEGACY_GEOMETRY_VERSION) return LEGACY_WHEELS;
   if (geometryVersion === MIRROR_GEOMETRY_VERSION) return MIRROR_WHEELS;
+  if (geometryVersion === REFERENCE_FIVE_GEOMETRY_VERSION) return WHEELS;
+  if (geometryVersion === MIRROR_FIVE_GEOMETRY_VERSION) return MIRROR_WHEELS;
   throw new RangeError('Version de géométrie incompatible.');
 }
 
-/** Both published sets use the modern two-lane board; historical saves do not. */
+/** Published ten-token sets have two inlets; five-token profiles have one. */
 export function hasTwoEntrances(geometryVersion = GEOMETRY_VERSION) {
   wheelsFor(geometryVersion);
   return geometryVersion === GEOMETRY_VERSION || geometryVersion === MIRROR_GEOMETRY_VERSION;

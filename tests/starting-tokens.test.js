@@ -12,7 +12,7 @@ import { TOKEN_ORDERS, configureStartingTokens, isValidStartingTokens, tokenOrde
 
 function fresh(version = GEOMETRY_VERSION, starter = 0) {
   const game = createGame(['A', 'B'], starter, version);
-  configureGameSet(game, gameSetIdForGeometry(version), version === MIRROR_GEOMETRY_VERSION
+  configureGameSet(game, gameSetIdForGeometry(version), gameSetIdForGeometry(version) === 'miroir-50'
     ? { mode: MIROIR50_START_MODE, seed: 1 } : { mode: 'classic', seed: 1 });
   return game;
 }

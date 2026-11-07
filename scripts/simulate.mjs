@@ -11,6 +11,7 @@ Usage : npm run simulate -- --games 10 --ai1 normal --ai2 hard --seed 42
   --ai2 NIVEAU    easy, normal, hard ou expert (normal par défaut)
   --seed ENTIER   Graine reproductible des départs et des IA faciles (1 par défaut)
   --set SET       reference ou miroir-50 (reference par défaut)
+  --tokens N      5 : une glissière ; 10 : deux séries de 5 (10 par défaut)
   --starts MODE   classic : ancien neutre à zéro ; varied : même pose par paire ; original : départ reconstitué estimé (classic par défaut)
   --max-turns N   Limite par partie, sans fabriquer d'égalité (10 000 par défaut)
   --json          Résultats structurés, une ligne JSON
@@ -38,7 +39,7 @@ try {
     if (seen.has(flag)) throw new TypeError(`Option répétée : ${flag}`);
     seen.add(flag);
     if (flag === '--json') { json = true; continue; }
-    if (!['--games', '--ai1', '--ai2', '--seed', '--max-turns', '--starts', '--set'].includes(flag)) {
+    if (!['--games', '--ai1', '--ai2', '--seed', '--max-turns', '--starts', '--set', '--tokens'].includes(flag)) {
       throw new TypeError(`Option inconnue : ${flag}`);
     }
     const value = args[++index];
@@ -46,7 +47,7 @@ try {
     if (flag === '--ai1' || flag === '--ai2') options.levels[flag === '--ai1' ? 0 : 1] = value;
     else if (flag === '--set') options.gameSetId = value;
     else if (flag === '--starts') options.startMode = value === 'original' ? ORIGINAL_START_MODE : value;
-    else options[{ '--games': 'count', '--seed': 'seed', '--max-turns': 'maxTurns' }[flag]] = integer(value, flag);
+    else options[{ '--games': 'count', '--seed': 'seed', '--max-turns': 'maxTurns', '--tokens': 'tokenCount' }[flag]] = integer(value, flag);
   }
   let stopped = false;
   const stop = () => { stopped = true; };
@@ -57,6 +58,7 @@ try {
   else {
     console.log(`${result.completed} / ${result.requested} parties terminées — graine ${result.seed}`);
     console.log(`Set : ${result.gameSetLabel} (${result.gameSetId})`);
+    console.log(`Pions : ${result.tokenCount ?? 10} par face — ${result.tokenCount === 5 ? 'une glissière' : 'deux séries de cinq'}`);
     console.log(`Départs : ${result.gameSetId === 'miroir-50' ? 'lot fixe Miroir 50, revanches complémentaires' : result.startMode === 'varied' ? 'variés par paires' : result.startMode === ORIGINAL_START_MODE ? 'original reconstitué (original-v1)' : 'classiques'} — ${result.positionCount} position(s) distincte(s)`);
     console.log(`IA 1 (${result.levels[0]}) : ${result.wins[0]} victoire(s)`);
     console.log(`IA 2 (${result.levels[1]}) : ${result.wins[1]} victoire(s)`);

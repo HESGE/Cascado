@@ -12,6 +12,8 @@ function previewFace(game, face, namespace) {
   // Both SVGs live in the same document. Local mask/gradient IDs must remain
   // unique, including when Safari resolves a back-face url(#...) reference.
   return boardSVG(view)
+    // The 3D board and hub centers use the common 540-unit illustration frame.
+    .replace('viewBox="0 0 360 510"', 'viewBox="0 0 360 540"')
     .replace(/\bid="([^"]+)"/g, (_, id) => `id="${namespace}-${id}"`)
     .replace(/url\(#([^\)]+)\)/g, (_, id) => `url(#${namespace}-${id})`)
     .replace('<svg ', '<svg aria-hidden="true" focusable="false" ');
@@ -19,9 +21,9 @@ function previewFace(game, face, namespace) {
 
 /** A fresh illustration, never a projection of the saved/current session.
  * The engine supplies the matching local angles of both physical faces. */
-export function rulesPreviewMarkup() {
+export function rulesPreviewMarkup({ geometryVersion = GEOMETRY_VERSION } = {}) {
   const namespace = `rules-preview-${++previewInstance}`;
-  const demonstration = createGame(['Face A', 'Face B'], 0, GEOMETRY_VERSION);
+  const demonstration = createGame(['Face A', 'Face B'], 0, geometryVersion);
   demonstration.angles = [...ORIGINAL_START_ANGLES];
   return `<figure class="rules-preview" data-rules-preview data-preview-paused="false" data-preview-manual="false">
     <div class="rules-preview-stage" role="img" aria-label="Vue en trois dimensions du jeu : deux faces et cinq roues communes.">

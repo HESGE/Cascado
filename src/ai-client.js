@@ -1,6 +1,7 @@
 import { chooseAIMove } from './ai.js';
 import { SUPPORTED_GEOMETRY_VERSIONS, LEGACY_GEOMETRY_VERSION } from './geometry.js';
 import { tokenTotal, queueLanes, nextBySeries } from './tokens.js';
+import { rememberedOptions } from './ai-memory.js';
 
 function finiteMove(value) {
   return value && Number.isInteger(value.wheel) && value.wheel >= 1 && value.wheel <= 5 &&
@@ -29,6 +30,7 @@ function projectedView(view) {
   return {
     faceIndex: view.faceIndex,
     geometryVersion,
+    ...(view.tokenOrder === 'shuffled' ? { tokenOrder: 'shuffled' } : {}),
     angles: [...view.angles],
     queue: [...view.queue],
     queues: queueLanes({ queue: view.queue }, geometryVersion).map(queue => [...queue]),
@@ -82,7 +84,7 @@ export function createAIClient({
       job.fallbackTimer = null;
       if (active !== job) return;
       let result;
-      try { result = fallback(job.view, job.level); }
+      try { result = fallback(job.view, job.level, job.options); }
       catch { finish(job, null); return; }
       Promise.resolve(result).then(
         move => finish(job, finiteMove(move)),
@@ -96,7 +98,7 @@ export function createAIClient({
     if (active) finish(active, null);
   }
 
-  function choose(view, level = 'normal') {
+  function choose(view, level = 'normal', options = {}) {
     cancel();
     const projection = projectedView(view);
     if (!projection) return Promise.resolve(null);
@@ -106,6 +108,7 @@ export function createAIClient({
         level: ['easy', 'normal', 'hard', 'expert'].includes(level) ? level : 'normal',
         resolve, worker: null, timer: null, fallbackTimer: null, fallbackStarted: false,
       };
+      job.options = rememberedOptions(projection, job.level, options);
       active = job;
       if (typeof WorkerClass !== 'function') { useFallback(job); return; }
       try {
@@ -122,7 +125,8 @@ export function createAIClient({
         job.worker.onmessageerror = () => useFallback(job);
         job.timer = setTimer(() => useFallback(job),
           Number.isFinite(timeoutMs) && timeoutMs > 0 ? timeoutMs : 5000);
-        job.worker.postMessage({ requestId: job.requestId, view: job.view, level: job.level });
+        job.worker.postMessage({ requestId: job.requestId, view: job.view, level: job.level,
+          ...(job.options.recentPositions ? { options: job.options } : {}) });
       } catch { useFallback(job); }
     });
   }

@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createGame, rotate } from '../src/engine.js';
 import { GEOMETRY_VERSION, MIRROR_GEOMETRY_VERSION, PREVIOUS_GEOMETRY_VERSION, LEGACY_GEOMETRY_VERSION,
-  SUPPORTED_GEOMETRY_VERSIONS, WHEELS, wheelsFor, inputGates, normalizeAngle, notchAngle } from '../src/geometry.js';
+  SUPPORTED_GEOMETRY_VERSIONS, WHEELS, wheelsFor, inputGates, normalizeAngle, notchAngle, baseGeometryVersion } from '../src/geometry.js';
 import { passableMouthInterval } from '../src/openings.js';
 import { tokenTotal } from '../src/tokens.js';
 import { configureStartingPosition, startingAnglesFor, normalizeStartConfig,
@@ -194,7 +194,7 @@ test('fresh configuration accepts all profiles and requires their complete flat 
     const game = createGame(['A', 'B'], 0, version);
     const tokens = Array.from({ length: tokenTotal(version) }, (_, index) => index + 1);
     assert.deepEqual(game.faces.map(face => face.queue), [tokens, tokens]);
-    const mode = version === MIRROR_GEOMETRY_VERSION ? 'miroir-50' : 'varied';
+    const mode = baseGeometryVersion(version) === MIRROR_GEOMETRY_VERSION ? 'miroir-50' : 'varied';
     assert.equal(configureStartingPosition(game, { mode, seed: 42 }), game);
     assert.equal(isValidStartingPosition(game), true);
     for (const mutate of [

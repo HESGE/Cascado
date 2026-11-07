@@ -14,6 +14,7 @@ import { configureStartingPosition, normalizeStartConfig, ORIGINAL_START_MODE,
 import { GAME_SETS, getGameSet, gameSetIdForGeometry } from '../src/game-sets.js';
 import { loadHumanRoster, normalizeHumanName, mergeHumanNames, rememberHumanNames, removeHumanName } from '../src/player-roster.js';
 import { TOKEN_ORDERS, configureStartingTokens, tokenOrderMode } from '../src/starting-tokens.js';
+import { tokenTotal } from '../src/tokens.js';
 
 const source = await readFile(new URL('../src/app.js', import.meta.url), 'utf8');
 function between(start, end) {
@@ -73,6 +74,7 @@ function harness(saved = null, options = {}) {
     gameSetPreference: options.setPreference ?? 'reference',
     gameStartPreference: options.gameStartPreference ?? ORIGINAL_START_MODE,
     tokenOrderPreference: options.tokenOrderPreference ?? 'ordered',
+    tokenCountPreference: options.tokenCountPreference ?? 10, tokenTotal,
     TOKEN_ORDERS, configureStartingTokens, tokenOrderMode,
     humanRoster: fixtureRoster,
     normalizeHumanName, mergeHumanNames,
@@ -125,6 +127,51 @@ function harness(saved = null, options = {}) {
     },
   };
 }
+
+for (const set of ['reference','miroir-50']) for (const order of ['ordered','shuffled']) for (const automatic of [false,true]) {
+  test(`${set}, ${order}, ${automatic ? 'automatic' : 'ordinary'} setup starts five pions per face with one inlet`, async () => {
+    const h = harness(null,{setPreference:set,tokenCountPreference:5,tokenOrderPreference:order});
+    h.prepare(false,false,automatic);
+    assert.equal(h.defaults().get('token-count'),'5');
+    await h.submit({'series-count':'4'});
+    const game = h.context.session.game;
+    assert.equal(game.geometryVersion,getGameSet(set,5).geometryVersion);
+    assert.equal(tokenTotal(game.geometryVersion),5);
+    assert.deepEqual(game.faces[0].queue,game.faces[1].queue);
+    assert.notEqual(game.faces[0].queue,game.faces[1].queue);
+    assert.deepEqual([...game.faces[0].queue].sort((a,b)=>a-b),[1,2,3,4,5]);
+    assert.equal(tokenOrderMode(game),order);
+    assert.equal(h.saves.length,1);
+    if(automatic) assert.equal(game.series.target,4);
+  });
+}
+
+test('a five-token shuffled rematch preserves its format and draw despite future ten-token preferences', async () => {
+  const game = configureStartingPosition(createGame(['Camille','Léa'],0,getGameSet('reference',5).geometryVersion),{mode:ORIGINAL_START_MODE});
+  configureStartingTokens(game,'shuffled',123);
+  const initial = [...game.faces[0].queue];
+  const h = harness(newSession(game),{tokenCountPreference:10,tokenOrderPreference:'ordered'});
+  h.prepare(true,true);
+  assert.equal(h.defaults().get('token-count'),'5');
+  await h.submit();
+  assert.equal(tokenTotal(h.context.session.game.geometryVersion),5);
+  assert.deepEqual(h.context.session.game.faces[0].queue,initial);
+  assert.deepEqual(h.context.session.game.faces[1].queue,initial);
+});
+
+test('invalid token counts cannot replace or save the existing game', async () => {
+  for(const count of ['6','0','-5','unknown']){
+    const saved = newSession(createGame(['Camille','Léa']));
+    const before = structuredClone(saved);
+    const h = harness(saved);
+    h.prepare(true);
+    await h.submit({'token-count':count});
+    assert.equal(h.context.session,saved);
+    assert.deepEqual(saved,before);
+    assert.equal(h.calls.length,0);
+    assert.equal(h.saves.length,0);
+  }
+});
 
 test('shuffled token option gives both faces the same seeded lanes through normal setup', async () => {
   const h = harness(null, { tokenOrderPreference: 'shuffled' });
@@ -278,13 +325,15 @@ for (const mode of [ORIGINAL_START_MODE, 'classic']) {
   });
 }
 
-test('an older neutral game retains its explicit rematch choice while the fresh game uses the current profile', async () => {
+test('an older neutral game keeps five tokens on rematch while using the current Reference phases', async () => {
   const saved = sessionFor(null, PREVIOUS_GEOMETRY_VERSION);
   const h = harness(saved);
   await h.click('rematch');
   assert.equal(h.defaults().get('start-mode'), 'classic');
   await h.submit();
-  assert.equal(h.context.session.game.geometryVersion, GEOMETRY_VERSION);
+  assert.equal(h.context.session.game.geometryVersion, getGameSet('reference',5).geometryVersion);
+  assert.equal(h.defaults().get('token-count'), '5');
+  assert.equal(h.context.session.game.faces[0].queue.length, 5);
   assert.deepEqual(h.context.session.game.angles, [0, 0, 0, 0, 0]);
   assert.equal(saved.game.geometryVersion, PREVIOUS_GEOMETRY_VERSION);
   assert.deepEqual(saved.game.angles, [0, 0, 0, 0, 0]);

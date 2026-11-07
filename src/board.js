@@ -121,7 +121,7 @@ export function renderBoard(view, { opponentProgress = null } = {}) {
     const [dx, dy] = point(WHEELS[0].radius - NOTCH_RADIUS, angle);
     const path = `M${f(tail.x)} ${f(tail.y)}L${f(head.x)} ${f(head.y)}L${f(180 + dx)} ${f(101 + dy)}`;
     return `<path data-queue-lane="${lane}" d="${path}"/><path d="${path}" stroke="${seriesAppearance(view, lane).color}" stroke-opacity=".55" stroke-width="1.4"/>`;
-  }).join('') : '<path d="M52 19L180 40V78"/><path d="M52 19L180 40" stroke="#3C87A0" stroke-width="1.4"/>';
+  }).join('') : '<path data-queue-lane="0" d="M52 19L180 40V78"/><path d="M52 19L180 40" stroke="#3C87A0" stroke-width="1.4"/>';
   const restriction = wheelRestriction(view);
   const wheelLabels = [[250, 80], [317, 169], [75, 251], [330, 300], [28, 364]].map(([x, y], index) => {
     const blocked = restriction.blockedWheel === index + 1;

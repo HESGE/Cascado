@@ -16,6 +16,7 @@ import { createPassageFeedbackTracker, advancePassageFeedbackTracker } from '../
 import { displayedFaceIndex, playerSettings } from '../src/players.js';
 import { createAIRotation, advanceAIRotation, completeAIRotation, AI_THINK_MS, AI_SELECT_MS, AI_TOKEN_DURATION_SCALE, AI_SETTLE_MS } from '../src/ai-motion.js';
 import { aiSpeedProfile } from '../src/ai-speed.js';
+import { rememberAIPosition } from '../src/ai-memory.js';
 
 const source = await readFile(new URL('../src/app.js', import.meta.url), 'utf8');
 function between(start, end) {
@@ -95,7 +96,7 @@ function harness(game, options = {}) {
     surfacePress: null, contacts: new Set(), HOLD_DELAY: 250, REPEAT_INTERVAL: 100,
     failed: false, aiGeneration: 0, aiDirtyGame: null, aiSpeed: options.aiSpeed ?? 'normal',
     performance: { now: () => now },
-    getView, rotate, allowedWheels, normalizeAngle, renderBoard, wheelCenter, getOpponentProgress,
+    getView, rotate, allowedWheels, normalizeAngle, renderBoard, wheelCenter, getOpponentProgress, rememberAIPosition,
     visibleTransfers, hasOpponentFall, createRotationGuide, advanceRotationGuide, finishRotationGuide,
     createWheelGesture, advanceWheelGesture, wheelAtPoint, ROTATION_STEP, rotationDetentDelta,
     createPassageFeedbackTracker, advancePassageFeedbackTracker,

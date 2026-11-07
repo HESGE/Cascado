@@ -25,6 +25,7 @@ import { createAlignmentFeedback } from './feedback.js';
 import { getResultSound } from './result-sound.js';
 import { AI_LEVELS } from './ai.js';
 import { createAIClient } from './ai-client.js';
+import { rememberAIPosition } from './ai-memory.js';
 import { playerSettings, isAIPlayer, singleHumanIndex, displayedFaceIndex, configurePlayers } from './players.js';
 import { loadHumanRoster, hasStoredHumanRoster, mergeHumanNames, rememberHumanNames, removeHumanName, normalizeHumanName } from './player-roster.js';
 import { createAIRotation, advanceAIRotation, completeAIRotation, AI_THINK_MS, AI_SELECT_MS, AI_TOKEN_DURATION_SCALE, AI_SETTLE_MS } from './ai-motion.js';
@@ -89,10 +90,12 @@ let startModePreference = 'varied';
 let gameSetPreference = 'reference';
 let gameStartPreference = ORIGINAL_START_MODE;
 let tokenOrderPreference = 'ordered';
+let tokenCountPreference = 10;
 let humanRoster = loadHumanRoster();
 try { const saved = localStorage.getItem('ddc-game-set'); if(GAME_SETS.some(set => set.id === saved)) gameSetPreference = saved; } catch { /* Optional preference. */ }
 try { const saved = localStorage.getItem('ddc-game-start-mode'); if(['classic', ORIGINAL_START_MODE].includes(saved)) gameStartPreference = saved; } catch { /* Optional preference. */ }
 try { const saved = localStorage.getItem('ddc-token-order'); if(TOKEN_ORDERS.some(order => order.id === saved)) tokenOrderPreference = saved; } catch { /* Optional preference. */ }
+try { const saved = localStorage.getItem('ddc-token-count'); if(['5','10'].includes(saved)) tokenCountPreference = Number(saved); } catch { /* Optional preference. */ }
 try { seriesCountPreference = parseSeriesCount(localStorage.getItem('ddc-series-count')) ?? 10; } catch { /* Optional preference. */ }
 try { if(localStorage.getItem('ddc-simulation-mode') === 'board') simulationModePreference = 'board'; } catch { /* Optional preference. */ }
 try { const saved = localStorage.getItem('ddc-start-mode'); if(['classic', ORIGINAL_START_MODE].includes(saved)) startModePreference = saved; } catch { /* Optional preference. */ }
@@ -251,11 +254,11 @@ function renderHome() {
     <img class="home-emblem" src="assets/branding/home-emblem.svg" alt="" width="110" height="110">
     <p class="eyebrow">UN TÉLÉPHONE · HUMAINS OU IA</p>
     <h1>À chacun<br>son côté.</h1>
-    <p>Tournez les roues. Faites sortir vos deux séries de 1 à 5 dans l’ordre. Gardez votre plateau pour vous.</p>
+    <p>Tournez les roues. Faites sortir vos pions de 1 à 5 dans l’ordre de chaque série. Gardez votre plateau pour vous.</p>
     <div class="actions">${session ? '<button class="primary" data-action="resume">Reprendre la partie</button>' : ''}<button class="${session ? 'secondary' : 'primary'}" data-action="new">Nouvelle partie</button><button class="secondary" data-action="rules">Comment jouer</button><button class="secondary" data-action="options">Options</button></div>
     <div class="install-status" id="install-status">${offlineStatus()}</div>
     ${updateAvailable ? '<button class="secondary" data-action="update">Une mise à jour est disponible</button>' : ''}
-    <p class="muted local-note">Sans compte · Partie enregistrée sur cet appareil<br><span data-release>Version 1.52</span></p></section>`;
+    <p class="muted local-note">Sans compte · Partie enregistrée sur cet appareil<br><span data-release>Version 1.57</span></p></section>`;
 }
 
 function renderOptions() {
@@ -266,6 +269,8 @@ function renderOptions() {
     <fieldset class="game-options"><legend>Prochaines parties</legend>
       <label class="field"><span>Set de jeu</span><select name="game-set" aria-describedby="game-set-help">${GAME_SETS.map(set => `<option value="${set.id}" ${set.id===gameSetPreference ? 'selected' : ''}>${set.label}</option>`).join('')}</select></label>
       <p id="game-set-help" class="muted">Référence : le réglage habituel. Miroir 50 : des roues symétriques et 50 positions sélectionnées.</p>
+      <label class="field"><span>Nombre de pions</span><select name="token-count" aria-describedby="token-count-help"><option value="10" ${tokenCountPreference===10 ? 'selected' : ''}>10 pions — deux séries</option><option value="5" ${tokenCountPreference===5 ? 'selected' : ''}>5 pions — une série</option></select></label>
+      <p id="token-count-help" class="muted">Par joueur : 5 pions de 1 à 5 avec une seule glissière, ou 10 pions avec deux séries et deux glissières.</p>
       <div data-reference-start ${gameSetPreference==='miroir-50' ? 'hidden' : ''}><label class="field"><span>Position de départ</span><select name="start-mode" aria-describedby="start-mode-help"><option value="${ORIGINAL_START_MODE}" ${gameStartPreference===ORIGINAL_START_MODE ? 'selected' : ''}>Repères d’origine — estimés</option><option value="classic" ${gameStartPreference==='classic' ? 'selected' : ''}>Ancien départ Cascado</option></select></label><p id="start-mode-help" class="muted">Les repères d’origine sont reconstitués d’après les photos du jeu ; leur position reste une estimation.</p></div>
       <p class="muted" data-miroir-start ${gameSetPreference==='miroir-50' ? '' : 'hidden'}><strong>Position de départ</strong><br>Une des 50 positions est tirée au sort. Une revanche propose son complément avec l’autre joueur qui commence.</p>
       <label class="field"><span>Ordre des jetons</span><select name="token-order" aria-describedby="token-order-help">${TOKEN_ORDERS.map(order => `<option value="${order.id}" ${order.id===tokenOrderPreference ? 'selected' : ''}>${order.label}</option>`).join('')}</select></label>
@@ -281,15 +286,18 @@ function renderOptions() {
   const setControl = app.querySelector('[name="game-set"]');
   const startControl = app.querySelector('[name="start-mode"]');
   const tokenControl = app.querySelector('[name="token-order"]');
+  const countControl = app.querySelector('[name="token-count"]');
   const saveOptions = () => {
     const set = setControl.value;
     const start = startControl.value;
     const tokens = tokenControl.value;
+    const count = Number(countControl.value);
     if(!GAME_SETS.some(candidate => candidate.id === set) || !['classic', ORIGINAL_START_MODE].includes(start)
-      || !TOKEN_ORDERS.some(order => order.id === tokens)) return;
+      || !TOKEN_ORDERS.some(order => order.id === tokens) || ![5,10].includes(count)) return;
     gameSetPreference = set;
     gameStartPreference = start;
     tokenOrderPreference = tokens;
+    tokenCountPreference = count;
     const mirror = set === 'miroir-50';
     app.querySelector('[data-reference-start]').hidden = mirror;
     app.querySelector('[data-miroir-start]').hidden = !mirror;
@@ -299,6 +307,7 @@ function renderOptions() {
       localStorage.setItem('ddc-game-set', set);
       localStorage.setItem('ddc-game-start-mode', start);
       localStorage.setItem('ddc-token-order', tokens);
+      localStorage.setItem('ddc-token-count', String(count));
     } catch { stored = false; }
     app.querySelector('#game-options-status').textContent = stored
       ? 'Réglages enregistrés pour les prochaines parties. Une reprise ou une revanche garde ses réglages.'
@@ -308,6 +317,7 @@ function renderOptions() {
   setControl?.addEventListener('change', saveOptions);
   startControl?.addEventListener('change', saveOptions);
   tokenControl?.addEventListener('change', saveOptions);
+  countControl?.addEventListener('change', saveOptions);
   bindAudioOption('game-sound', SOUND_PREFERENCE_KEY, SOUND_VOLUME_KEY,
     enabled => sound.setEnabled(enabled), volume => sound.setVolume(volume));
   bindAudioOption('music', MUSIC_ENABLED_KEY, MUSIC_VOLUME_KEY, enabled => {
@@ -545,6 +555,7 @@ function prepare(replace = false, rematch = false, automatic = false) {
   const startMode = rematch ? normalizeStartConfig(session.game.startConfig)?.mode ?? 'classic' : automatic ? startModePreference : gameStartPreference;
   const setId = rematch ? gameSetIdForGeometry(session.game.geometryVersion) : gameSetPreference;
   const tokenOrder = rematch ? tokenOrderMode(session.game) : tokenOrderPreference;
+  const tokenCount = rematch ? tokenTotal(session.game.geometryVersion) : tokenCountPreference;
   const fields = [0, 1].map(index => {
     const seat = index + 1;
     const config = settings[index];
@@ -558,7 +569,7 @@ function prepare(replace = false, rematch = false, automatic = false) {
       <label class="field ai-level" ${config.controller === 'ai' ? '' : 'hidden'}><span>Niveau de l’IA ${seat}</span><select name="level${seat}" ${config.controller === 'ai' ? '' : 'disabled'}>${AI_LEVELS.map(level => `<option value="${level.id}" ${config.level === level.id ? 'selected' : ''}>${level.label}</option>`).join('')}</select></label></fieldset>`;
   }).join('');
   app.innerHTML = `<section class="screen preparation${automatic ? ' is-automatic' : ''}">${brand}<p class="eyebrow">${rematch ? 'REVANCHE' : automatic ? 'IA CONTRE IA' : 'NOUVELLE PARTIE'}</p><h1>${automatic ? 'Duel automatique' : 'Qui joue ?'}</h1><p>${automatic ? 'Choisis les niveaux, le nombre de parties et l’affichage. Les IA enchaînent les confrontations, puis affichent leur bilan.' : 'Choisis un nom enregistré ou crée-en un nouveau. Les noms restent sur cet appareil.'}</p>
-    <form id="setup"><input type="hidden" name="game-set" value="${setId}"><input type="hidden" name="start-mode" value="${startMode}"><input type="hidden" name="token-order" value="${tokenOrder}">${automatic ? `<div class="automatic-levels">${fields}</div>` : fields}${automatic ? `<div class="series-count-field"><label class="field"><span>Nombre de parties</span><input type="number" name="series-count" inputmode="numeric" min="1" max="1000" step="1" required value="${seriesTarget}" aria-describedby="series-count-help"></label><div class="series-presets" role="group" aria-label="Nombre de parties proposé">${[10,50,100].map(count => `<button class="secondary" type="button" data-action="series-preset" data-count="${count}" aria-pressed="${seriesTarget===count}">${count} parties</button>`).join('')}</div><p id="series-count-help" class="muted">De 1 à 1 000 parties. Garde le jeu ouvert pour calculer.</p><label class="field"><span>Affichage</span><select name="simulation-mode" aria-describedby="simulation-mode-help"><option value="headless" ${simulationMode==='headless' ? 'selected' : ''}>Sans plateau — simulation rapide</option><option value="board" ${simulationMode==='board' ? 'selected' : ''}>Avec le plateau</option></select></label><p id="simulation-mode-help" class="muted">Sans plateau, les IA calculent à pleine vitesse. Seuls les scores et l’avancement sont affichés.</p></div>` : ''}<div data-setup-speed ${settings.some(config => config.controller === 'ai') && (!automatic || simulationMode !== 'headless') ? '' : 'hidden'}>${speedSlot()}</div>
+    <form id="setup"><input type="hidden" name="game-set" value="${setId}"><input type="hidden" name="start-mode" value="${startMode}"><input type="hidden" name="token-order" value="${tokenOrder}"><input type="hidden" name="token-count" value="${tokenCount}">${automatic ? `<div class="automatic-levels">${fields}</div>` : fields}${automatic ? `<div class="series-count-field"><label class="field"><span>Nombre de parties</span><input type="number" name="series-count" inputmode="numeric" min="1" max="1000" step="1" required value="${seriesTarget}" aria-describedby="series-count-help"></label><div class="series-presets" role="group" aria-label="Nombre de parties proposé">${[10,50,100].map(count => `<button class="secondary" type="button" data-action="series-preset" data-count="${count}" aria-pressed="${seriesTarget===count}">${count} parties</button>`).join('')}</div><p id="series-count-help" class="muted">De 1 à 1 000 parties. Garde le jeu ouvert pour calculer.</p><label class="field"><span>Affichage</span><select name="simulation-mode" aria-describedby="simulation-mode-help"><option value="headless" ${simulationMode==='headless' ? 'selected' : ''}>Sans plateau — simulation rapide</option><option value="board" ${simulationMode==='board' ? 'selected' : ''}>Avec le plateau</option></select></label><p id="simulation-mode-help" class="muted">Sans plateau, les IA calculent à pleine vitesse. Seuls les scores et l’avancement sont affichés.</p></div>` : ''}<div data-setup-speed ${settings.some(config => config.controller === 'ai') && (!automatic || simulationMode !== 'headless') ? '' : 'hidden'}>${speedSlot()}</div>
     ${automatic ? `<input type="hidden" name="starter" value="${starter}"><p class="automatic-start">IA ${starter+1} commence, puis le premier joueur alterne à chaque partie. Tu peux mettre la série en pause.</p>` : `<label class="field"><span>Premier joueur</span><select name="starter"><option value="0" ${starter === 0 ? 'selected' : ''}>Joueur 1</option><option value="1" ${starter === 1 ? 'selected' : ''}>Joueur 2</option></select></label>`}
     <p class="muted roster-status" id="roster-status" role="status" aria-live="polite" hidden></p>
     ${replace ? '<p class="replacement-note">Démarrer remplacera la partie enregistrée sur cet appareil.</p>' : ''}
@@ -654,7 +665,9 @@ function prepare(replace = false, rematch = false, automatic = false) {
     if(!GAME_SETS.some(set => set.id === chosenSetId)) return;
     const chosenTokenOrder = data.get('token-order');
     if(!TOKEN_ORDERS.some(order => order.id === chosenTokenOrder)) return;
-    const chosenSet = getGameSet(chosenSetId);
+    const chosenTokenCount = Number(data.get('token-count'));
+    if(![5,10].includes(chosenTokenCount)) return;
+    const chosenSet = getGameSet(chosenSetId,chosenTokenCount);
     const chosenStartMode = chosenSetId === 'miroir-50' ? MIROIR50_START_MODE : data.get('start-mode');
     if(chosenSetId === 'reference' && !(automatic ? ['classic', 'varied', ORIGINAL_START_MODE] : ['classic', ORIGINAL_START_MODE]).includes(chosenStartMode))return;
     const game = configurePlayers(createGame(chosenNames, chosenStarter, chosenSet.geometryVersion), configurations);
@@ -1205,7 +1218,9 @@ async function runAITurn() {
   renderPlay(true);
   try {
     // The planner receives only its own face, never the authoritative game.
-    const move = await ai.choose(getView(game, active), playerSettings(game.players[active]).level);
+    const view = getView(game, active);
+    const level = playerSettings(game.players[active]).level;
+    const move = await ai.choose(view, level, rememberAIPosition(game, active, view, level));
     if(!current()) return;
     if(!move || !allowedWheels(game).includes(move.wheel)
       || !Number.isFinite(move.localDelta) || Math.abs(move.localDelta) < 1e-9) {
@@ -1391,12 +1406,13 @@ async function runSeriesTransition() {
 function renderRules() {
   app.querySelector('[data-rules-preview]')?.rulesPreviewCleanup?.();
   mode='rules';
+  const count = session ? tokenTotal(session.game.geometryVersion) : tokenCountPreference;
   app.innerHTML=`<section class="screen rules">${brand}<p class="eyebrow">LES RÈGLES</p><h1>Fais-les tomber.<br>Dans le bon ordre.</h1>
-    ${rulesPreviewMarkup()}
-    <ol><li>Chacun possède dix jetons : une série de 1 à 5 à gauche et une autre à droite, distinguées par leur couleur et leur symbole.</li><li>À ton tour, choisis une roue et tourne-la lentement. Les deux faces bougent ensemble.</li><li>Tu peux t’arrêter, reprendre et changer de sens sur cette même roue.</li><li>La dernière roue jouée par l’adversaire est interdite. Exception : ton dernier jeton est encore dans la roue 5.</li><li>Pour gagner, sors les dix jetons en respectant l’ordre de 1 à 5 dans chaque série. Tu peux alterner les deux séries. Une sortie hors ordre dans une série fait perdre son propriétaire.</li><li>Contre une IA, appuie sur « Terminer mon tour » et garde le téléphone. À deux humains, appuie sur « Terminer et masquer », puis donne le téléphone au joueur indiqué. Il appuie une seule fois sur le bouton à son prénom pour afficher son plateau.</li></ol>
-    ${session && tokenTotal(session.game.geometryVersion) === 5 ? '<p>Ta partie déjà commencée conserve une seule série de cinq jetons et une seule entrée. Pour cette partie, fais sortir les cinq jetons de 1 à 5 pour gagner.</p>' : ''}
-    <p>Dans <strong>Options</strong>, choisis aussi l’ordre des jetons. Le mode mélangé tire les numéros au sort dans chaque file et donne la même combinaison aux deux faces. Les sorties restent dans l’ordre de 1 à 5 pour chaque série.</p><p>Choisis ton set dans <strong>Options</strong> : <strong>Référence</strong> conserve le réglage habituel. <strong>Miroir 50</strong> utilise des roues symétriques et 50 positions sélectionnées. Le départ est tiré au sort ; une revanche propose son complément avec l’autre joueur qui commence. Les règles et les commandes restent les mêmes.</p>
-    <p>Les nouvelles parties proposent « Repères d’origine — estimés » : les roues retrouvent une position reconstituée d’après les flèches du jeu photographié. Ce départ reste une estimation et ne garantit pas l’équilibre des faces. Tu peux choisir « Ancien départ Cascado » dans les options.</p><p>Pose le doigt sur une roue, maintiens-le et fais-le glisser autour de son centre pour la tourner. La roue suit ton mouvement, dans les deux sens, avec un guidage vers les passages de ta face. Approche une position utile : la roue se cale et le repère devient doré. Poursuis ton geste pour dépasser ce cran et atteindre le suivant. Relâche pour t’arrêter ; garder le doigt immobile ne fait pas tourner. Si tu touches le moyeu, éloigne d’abord le doigt du centre puis poursuis ton geste. Au clavier, sélectionne une roue avec Entrée ou Espace, puis utilise les flèches gauche et droite pour avancer par crans assistés de 6° au maximum.</p><p>Pour faire tomber un jeton, place les deux ouvertures presque exactement face à face dans l’axe du passage. Le guidage aide à centrer la roue. La réception doit être libre. Si la réception est fermée, prépare cette roue lors d’un autre tour. Les petits repères fixes indiquent les passages.</p><p>En bas du plateau, les jetons déjà arrivés de l’autre joueur apparaissent en transparence, avec son compteur. Ses jetons encore en jeu restent sur sa propre face.</p><p>Le bouton haut-parleur en haut du plateau active ou coupe les sons du jeu, y compris les jingles. Un clic confirme leur réactivation. Dans Options, règle séparément le volume des sons du jeu et celui de la musique de fond, ou coupe l’un des deux. La rotation produit un petit cliquetis feutré, façon coffre-fort : plus tu tournes vite, plus les sons se rapprochent ; ils s’arrêtent avec ton geste. Le clic net signale seulement un passage suffisamment ouvert entre deux roues de ta face pendant ton tour ; une seule encoche devant un conduit ne suffit pas. Il accompagne aussi un halo et, si disponible, une brève vibration. Tu entends aussi les chutes adverses, même sur la face cachée, avec un bruit générique. Une courte mélodie accompagne la victoire ou la défaite seulement quand le résultat est dévoilé. Si aucun son ne sort, ouvre « Son : aide et test » dans les options pour le relancer et le tester. Sur les anciens iPhone, désactive aussi le mode silencieux et monte le volume multimédia. Full et les simulations sans plateau restent silencieux.</p><p>Choisis Humain ou IA pour chaque joueur au début de la partie. Pour un humain, reprends un nom enregistré sur cet appareil ou crée-en un nouveau. Pour une IA, choisis seulement son niveau : Facile, Normal, Difficile ou Expert. Expert adapte sa recherche au set : il prépare les réceptions, compare les parcours possibles et donne la priorité aux prochains numéros de ses deux séries. Il utilise toujours uniquement sa propre face. Les IA jouent sur cet appareil et ne voient que leur propre face. Contre une IA, ton plateau reste affiché : regarde les roues tourner pendant son tour, puis reprends la main directement. Pour regarder deux IA jouer, choisis IA pour chacun des joueurs dans « Nouvelle partie », puis leurs niveaux. Dès qu’une chute décide de la victoire, de la défaite ou de l’égalité, la roue s’arrête et le résultat s’affiche après l’animation visible.</p><p class="muted">Convention de cette adaptation : les sorties simultanées doivent former les prochains numéros consécutifs de chacune des séries concernées. Si des fins simultanées désignent des gagnants différents, la partie est nulle. Le calage des roues est estimé à partir de la vidéo du jeu original ; il ne constitue pas une reproduction exacte.</p>
+    ${rulesPreviewMarkup({geometryVersion:session?.game.geometryVersion ?? getGameSet(gameSetPreference,tokenCountPreference).geometryVersion})}
+    <ol><li>${count===5 ? 'Chacun possède cinq pions : une série de 1 à 5 dans une seule glissière.' : 'Chacun possède dix pions : une série de 1 à 5 à gauche et une autre à droite, distinguées par leur couleur et leur symbole.'}</li><li>À ton tour, choisis une roue et tourne-la lentement. Les deux faces bougent ensemble.</li><li>Tu peux t’arrêter, reprendre et changer de sens sur cette même roue.</li><li>La dernière roue jouée par l’adversaire est interdite. Exception : ton dernier pion est encore dans la roue 5.</li><li>Pour gagner, sors les ${count===5 ? 'cinq' : 'dix'} pions en respectant l’ordre de 1 à 5 dans chaque série.${count===10 ? ' Tu peux alterner les deux séries.' : ''} Une sortie hors ordre fait perdre son propriétaire.</li><li>Contre une IA, appuie sur « Terminer mon tour » et garde le téléphone. À deux humains, appuie sur « Terminer et masquer », puis donne le téléphone au joueur indiqué. Il appuie une seule fois sur le bouton à son prénom pour afficher son plateau.</li></ol>
+    ${session && tokenTotal(session.game.geometryVersion) === 5 ? '<p>Ta partie utilise une seule série de cinq pions et une seule glissière. Pour cette partie, fais sortir les cinq jetons de 1 à 5 pour gagner.</p>' : ''}
+    <p>Dans <strong>Options → Nombre de pions</strong>, choisis <strong>5 pions — une série</strong> avec une seule glissière, ou <strong>10 pions — deux séries</strong> avec deux glissières. Fais sortir tous les pions de chaque série de 1 à 5 pour gagner. Dans <strong>Options</strong>, choisis aussi l’ordre des jetons. Le mode mélangé tire les numéros au sort dans chaque file et donne la même combinaison aux deux faces. Les sorties restent dans l’ordre de 1 à 5 pour chaque série.</p><p>Choisis ton set dans <strong>Options</strong> : <strong>Référence</strong> conserve le réglage habituel. <strong>Miroir 50</strong> utilise des roues symétriques et 50 positions sélectionnées. Le départ est tiré au sort ; une revanche propose son complément avec l’autre joueur qui commence. Les règles et les commandes restent les mêmes.</p>
+    <p>Les nouvelles parties proposent « Repères d’origine — estimés » : les roues retrouvent une position reconstituée d’après les flèches du jeu photographié. Ce départ reste une estimation et ne garantit pas l’équilibre des faces. Tu peux choisir « Ancien départ Cascado » dans les options.</p><p>Pose le doigt sur une roue, maintiens-le et fais-le glisser autour de son centre pour la tourner. La roue suit ton mouvement, dans les deux sens, avec un guidage vers les passages de ta face. Approche une position utile : la roue se cale et le repère devient doré. Poursuis ton geste pour dépasser ce cran et atteindre le suivant. Relâche pour t’arrêter ; garder le doigt immobile ne fait pas tourner. Si tu touches le moyeu, éloigne d’abord le doigt du centre puis poursuis ton geste. Au clavier, sélectionne une roue avec Entrée ou Espace, puis utilise les flèches gauche et droite pour avancer par crans assistés de 6° au maximum.</p><p>Pour faire tomber un jeton, place les deux ouvertures presque exactement face à face dans l’axe du passage. Le guidage aide à centrer la roue. La réception doit être libre. Si la réception est fermée, prépare cette roue lors d’un autre tour. Les petits repères fixes indiquent les passages.</p><p>En bas du plateau, les jetons déjà arrivés de l’autre joueur apparaissent en transparence, avec son compteur. Ses jetons encore en jeu restent sur sa propre face.</p><p>Le bouton haut-parleur en haut du plateau active ou coupe les sons du jeu, y compris les jingles. Un clic confirme leur réactivation. Dans Options, règle séparément le volume des sons du jeu et celui de la musique de fond, ou coupe l’un des deux. La rotation produit un petit cliquetis feutré, façon coffre-fort : plus tu tournes vite, plus les sons se rapprochent ; ils s’arrêtent avec ton geste. Le clic net signale seulement un passage suffisamment ouvert entre deux roues de ta face pendant ton tour ; une seule encoche devant un conduit ne suffit pas. Il accompagne aussi un halo et, si disponible, une brève vibration. Tu entends aussi les chutes adverses, même sur la face cachée, avec un bruit générique. Une courte mélodie accompagne la victoire ou la défaite seulement quand le résultat est dévoilé. Si aucun son ne sort, ouvre « Son : aide et test » dans les options pour le relancer et le tester. Sur les anciens iPhone, désactive aussi le mode silencieux et monte le volume multimédia. Full et les simulations sans plateau restent silencieux.</p><p>Choisis Humain ou IA pour chaque joueur au début de la partie. Pour un humain, reprends un nom enregistré sur cet appareil ou crée-en un nouveau. Pour une IA, choisis seulement son niveau : Facile, Normal, Difficile ou Expert. Expert adapte sa recherche au set : il prépare les réceptions, compare les parcours possibles et donne la priorité aux prochains numéros de ses séries. Il utilise toujours uniquement sa propre face. Les IA jouent sur cet appareil et ne voient que leur propre face. Contre une IA, ton plateau reste affiché : regarde les roues tourner pendant son tour, puis reprends la main directement. Pour regarder deux IA jouer, choisis IA pour chacun des joueurs dans « Nouvelle partie », puis leurs niveaux. Dès qu’une chute décide de la victoire, de la défaite ou de l’égalité, la roue s’arrête et le résultat s’affiche après l’animation visible.</p><p class="muted">Convention de cette adaptation : les sorties simultanées doivent former les prochains numéros consécutifs de chacune des séries concernées. Si des fins simultanées désignent des gagnants différents, la partie est nulle. Le calage des roues est estimé à partir de la vidéo du jeu original ; il ne constitue pas une reproduction exacte.</p>
     <button class="primary" data-action="home">J’ai compris</button></section>`;
   const preview = app.querySelector('[data-rules-preview]');
   if(preview) preview.rulesPreviewCleanup = setupRulesPreview(preview);

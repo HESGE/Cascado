@@ -169,7 +169,8 @@ export function mountRulesModel(stage, object) {
       background.setAttribute('fill', '#12617B');
       clone.insertBefore(background, clone.firstChild);
       const label = stage.ownerDocument.createElementNS('http://www.w3.org/2000/svg', 'g');
-      label.innerHTML = '<rect x="135" y="9" width="90" height="28" rx="6" fill="#07384D"/><text x="180" y="29" text-anchor="middle" fill="#FFF9E9" font-size="14" font-weight="650"></text>';
+      const labelX = svg.querySelectorAll('[data-queue-lane]').length === 1 ? 250 : 135;
+      label.innerHTML = `<rect x="${labelX}" y="9" width="90" height="28" rx="6" fill="#07384D"/><text x="${labelX + 45}" y="29" text-anchor="middle" fill="#FFF9E9" font-size="14" font-weight="650"></text>`;
       label.lastChild.textContent = svg.parentElement.querySelector('.rules-preview-face-label')?.textContent ?? '';
       clone.append(label);
       const source = new browser.XMLSerializer().serializeToString(clone);

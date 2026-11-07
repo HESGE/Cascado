@@ -58,6 +58,7 @@ export function getView(state, faceIndex) {
   return {
     faceIndex,
     geometryVersion: state.geometryVersion,
+    ...(state.tokenStart?.mode === 'shuffled' ? { tokenOrder: 'shuffled' } : {}),
     ...state.players[faceIndex],
     angles: WHEELS.map(({ id }) => notchAngle(faceIndex, id, 0, state.angles[id - 1], state.geometryVersion)),
     queue: [...face.queue],

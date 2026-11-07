@@ -7,7 +7,9 @@ import { createSeries, seriesGameId } from '../src/series.js';
 import { createSimulationClient } from '../src/simulation-client.js';
 import { advanceSimulationBatch } from '../src/simulation-worker.js';
 import { configureStartingPosition, configureGameSet, startingAnglesFor } from '../src/starting-position.js';
-import { GEOMETRY_VERSION, LEGACY_GEOMETRY_VERSION, MIRROR_GEOMETRY_VERSION, SUPPORTED_GEOMETRY_VERSIONS } from '../src/geometry.js';
+import { GEOMETRY_VERSION, LEGACY_GEOMETRY_VERSION, MIRROR_GEOMETRY_VERSION, SUPPORTED_GEOMETRY_VERSIONS,
+  REFERENCE_FIVE_GEOMETRY_VERSION, baseGeometryVersion } from '../src/geometry.js';
+import { isSimulationSession } from '../src/simulation.js';
 import { tokenTotal } from '../src/tokens.js';
 import { configureStartingTokens } from '../src/starting-tokens.js';
 
@@ -18,7 +20,7 @@ function session(geometryVersion = GEOMETRY_VERSION) {
   game.starter = 0;
   game.series = createSeries(10, { id: 'client-test' });
   game.statsId = seriesGameId(game.series);
-  if (geometryVersion === MIRROR_GEOMETRY_VERSION) {
+  if (baseGeometryVersion(geometryVersion) === MIRROR_GEOMETRY_VERSION) {
     configureGameSet(game, 'miroir-50', { mode: 'miroir-50', seed: 42 });
   }
   return newSession(game);
@@ -398,22 +400,60 @@ test('worker progress cannot change an accepted mechanical profile', async () =>
   }
 });
 
+test('a coherent five-token worker reply still cannot replace the saved wheel geometry', async () => {
+  const r = rig();
+  const original = session(REFERENCE_FIVE_GEOMETRY_VERSION);
+  const pending = r.client.advance(original);
+  assert.equal(r.workers.length, 1);
+  const response = progressed(r.workers[0]);
+  response.session.game.geometryVersion = LEGACY_GEOMETRY_VERSION;
+  assert.equal(isSimulationSession(response.session), true, 'the replacement is independently valid with the same five tokens and set');
+  r.workers[0].reply(response);
+  assert.equal(await pending, null, 'a valid replacement profile still differs from the accepted geometry');
+});
+
 test('a ten-token worker reply cannot hide a missing or duplicate token behind displayed numbers', async () => {
-  for (const change of [
+  for (const geometryVersion of SUPPORTED_GEOMETRY_VERSIONS.filter(version => tokenTotal(version) === 10)) {
+    for (const change of [
     value => { value.session.game.faces[0].queue[5] = 1; },
     value => { value.session.game.faces[0].queue = [1, 2, 3, 4, 5]; },
     value => { value.session.game.faces[0].queue[9] = 11; },
-  ]) {
-    const r = rig();
-    const pending = r.client.advance(session());
-    const response = progressed(r.workers[0]);
-    change(response); r.workers[0].reply(response);
-    assert.equal(await pending, null);
-    assert.equal(r.workers[0].terminated, true);
+    ]) {
+      const r = rig();
+      const pending = r.client.advance(session(geometryVersion));
+      const response = progressed(r.workers[0]);
+      change(response); r.workers[0].reply(response);
+      assert.equal(await pending, null);
+      assert.equal(r.workers[0].terminated, true);
+    }
   }
+});
+
+test('five-token worker replies reject missing, duplicate and out-of-range tokens', async () => {
+  for (const geometryVersion of SUPPORTED_GEOMETRY_VERSIONS.filter(version => tokenTotal(version) === 5)) {
+    for (const change of [
+      value => { value.session.game.faces[0].queue.pop(); },
+      value => { value.session.game.faces[0].queue[4] = 1; },
+      value => { value.session.game.faces[0].queue[4] = 6; },
+    ]) {
+      const r = rig();
+      const pending = r.client.advance(session(geometryVersion));
+      assert.equal(r.workers.length, 1);
+      const response = progressed(r.workers[0]);
+      change(response); r.workers[0].reply(response);
+      assert.equal(await pending, null);
+      assert.equal(r.workers[0].terminated, true);
+    }
+  }
+});
+
+test('worker progress accepts every supported profile with its exact token supply', async () => {
   for (const geometryVersion of SUPPORTED_GEOMETRY_VERSIONS) {
     const r = rig();
-    const pending = r.client.advance(session(geometryVersion));
+    const original = session(geometryVersion);
+    assert.equal(isSimulationSession(original), true);
+    const pending = r.client.advance(original);
+    assert.equal(r.workers.length, 1);
     r.workers[0].reply();
     const result = await pending;
     assert.equal(result.session.game.faces[0].queue.length, tokenTotal(geometryVersion));

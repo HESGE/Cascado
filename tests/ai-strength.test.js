@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { chooseAIMove } from '../src/ai.js';
+import { rememberAIPosition } from '../src/ai-memory.js';
 import { createGame, getView, allowedWheels, rotate } from '../src/engine.js';
 import { newSession, transmit, acceptReveal } from '../src/flow.js';
 import { SUPPORTED_GEOMETRY_VERSIONS, LEGACY_GEOMETRY_VERSION } from '../src/geometry.js';
@@ -33,7 +34,8 @@ for (const hardFace of [0, 1]) {
         const player = game.active;
         const previousTurn = game.turn;
         const view = getView(game, player);
-        const move = chooseAIMove(view, player === hardFace ? 'hard' : 'normal');
+        const level = player === hardFace ? 'hard' : 'normal';
+        const move = chooseAIMove(view, level, rememberAIPosition(game, player, view, level));
         assert.ok(move, `turn ${previousTurn}: the planner returns a move`);
         assert.ok(view.allowedWheels.includes(move.wheel));
         assert.ok(allowedWheels(game).includes(move.wheel), `turn ${previousTurn}: the move is legal`);

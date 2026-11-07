@@ -5,7 +5,7 @@ const CACHE = `${PREFIX}${VERSION}`;
 const ROOT = new URL('./', self.location.href);
 const INSTALL_INFO = new URL('./__cache_install_info__', ROOT).href;
 const ASSETS = [
-  './', './index.html', './src/app.js', './src/rules-preview.js', './src/rules-model-3d.js', './src/player-roster.js', './src/share.js', './src/board.js', './src/wheel-rule.js', './src/engine.js', './src/players.js', './src/ai.js', './src/ai-client.js', './src/ai-worker.js', './src/ai-motion.js', './src/ai-speed.js',
+  './', './index.html', './src/app.js', './src/rules-preview.js', './src/rules-model-3d.js', './src/player-roster.js', './src/share.js', './src/board.js', './src/wheel-rule.js', './src/engine.js', './src/players.js', './src/ai.js', './src/ai-memory.js', './src/ai-client.js', './src/ai-worker.js', './src/ai-motion.js', './src/ai-speed.js',
   './src/opponent-progress.js', './src/viewport-lock.js', './src/geometry.js', './src/game-sets.js', './src/miroir50-positions.js', './src/tokens.js', './src/starting-tokens.js', './src/openings.js', './src/detents.js', './src/gesture.js', './src/rotation-guide.js', './src/wheel-hit.js', './src/magnet.js', './src/passage-feedback.js', './src/feedback.js', './src/alignment.js', './src/flow.js', './src/result-sound.js', './src/storage.js', './src/statistics.js', './src/series.js', './src/starting-position.js', './src/simulation.js', './src/simulation-client.js', './src/simulation-worker.js', './src/motion.js', './src/sound.js', './src/styles.css', './manifest.webmanifest',
   './src/background-music.js',
   './assets/audio/wheel.wav', './assets/audio/slide.wav', './assets/audio/drop.wav',

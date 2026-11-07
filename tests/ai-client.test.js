@@ -4,6 +4,8 @@ import { createGame, getView } from '../src/engine.js';
 import { createAIClient } from '../src/ai-client.js';
 import { GEOMETRY_VERSION, SUPPORTED_GEOMETRY_VERSIONS, LEGACY_GEOMETRY_VERSION } from '../src/geometry.js';
 import { tokenTotal } from '../src/tokens.js';
+import { getGameSet } from '../src/game-sets.js';
+import { aiPositionKey } from '../src/ai-memory.js';
 
 const move = { wheel: 2, localDelta: -30 };
 const view = () => getView(createGame(), 0);
@@ -293,6 +295,42 @@ test('AI client derives two public queues and next numbers from the flat authori
   assert.deepEqual(await pending, move);
 });
 
+test('AI client preserves only the shuffled-mode hint through the worker and its fallback', async () => {
+  const r = rig();
+  const game = createGame(['A', 'B']);
+  game.tokenStart = { mode: 'shuffled', seed: 123456789 };
+  const original = getView(game, 0);
+  original.tokenStart = { mode: 'shuffled', seed: 123456789 };
+  original.opponent = { queue: [5, 4, 3, 2, 1] };
+  const pending = r.client.choose(original, 'hard');
+  const worker = r.workers[0];
+  const sent = worker.message.view;
+  assert.equal(sent.tokenOrder, 'shuffled');
+  assert.equal(Object.hasOwn(sent, 'tokenStart'), false);
+  assert.equal(Object.hasOwn(sent, 'seed'), false);
+  assert.equal(Object.hasOwn(sent, 'opponent'), false);
+  original.tokenOrder = 'changed-after-request';
+  original.tokenStart.seed = 0;
+  worker.onerror({ preventDefault() {} });
+  r.fire(0); await tick();
+  assert.deepEqual(await pending, move);
+  assert.equal(r.fallbackCalls[0].projection.tokenOrder, 'shuffled');
+  assert.deepEqual(r.fallbackCalls[0].projection, sent);
+});
+
+test('AI client discards unsupported or nested token-order data without exposing provenance', async () => {
+  for (const tokenOrder of [undefined, null, 'ordered', 'future', {}, { seed: 123 }, ['shuffled']]) {
+    const r = rig();
+    const original = { ...view(), tokenOrder, tokenStart: { mode: 'shuffled', seed: 123 } };
+    const pending = r.client.choose(original);
+    const sent = r.workers[0].message.view;
+    assert.equal(Object.hasOwn(sent, 'tokenOrder'), false);
+    assert.equal(Object.hasOwn(sent, 'tokenStart'), false);
+    r.workers[0].reply();
+    assert.deepEqual(await pending, move);
+  }
+});
+
 test('AI client keeps wheel IDs limited to five even when token IDs reach ten', async () => {
   for (const change of [
     value => { value.allowedWheels = [6]; },
@@ -304,5 +342,37 @@ test('AI client keeps wheel IDs limited to five even when token IDs reach ten', 
     const invalid = view(); change(invalid);
     assert.equal(await r.client.choose(invalid), null);
     assert.equal(r.workers.length, 0);
+  }
+});
+
+test('AI client forwards bounded own memory unchanged to the worker and its fallback', async () => {
+  const game = createGame(['A', 'B'], 0, getGameSet('reference', 5).geometryVersion);
+  const own = getView(game, 0);
+  const key = aiPositionKey(own);
+  const opposite = aiPositionKey(getView(game, 1));
+  const calls = [];
+  const r = rig({ fallback(projection, level, options) {
+    calls.push({ projection, level, options }); return move;
+  } });
+  const options = { recentPositions: [key, opposite, 'private'], opponent: { secret: true }, seed: 123 };
+  const pending = r.client.choose(own, 'hard', options);
+  const worker = r.workers[0];
+  assert.deepEqual(worker.message.options, { recentPositions: [key] });
+  assert.equal(Object.hasOwn(worker.message.view, 'aiMemory'), false);
+  options.recentPositions[0] = 'mutated after choose';
+  worker.onerror({ preventDefault() {} });
+  r.fire(0); await tick();
+  assert.deepEqual(await pending, move);
+  assert.deepEqual(calls[0].options, { recentPositions: [key] });
+  assert.equal(calls[0].level, 'hard');
+});
+
+test('AI client ignores memory options outside the defensive scope', async () => {
+  for (const level of ['easy', 'normal', 'hard', 'expert']) {
+    const r = rig();
+    const pending = r.client.choose(view(), level, { recentPositions: ['private'], opponent: { secret: true } });
+    assert.equal(Object.hasOwn(r.workers[0].message, 'options'), false);
+    r.workers[0].reply();
+    assert.deepEqual(await pending, move);
   }
 });

@@ -125,7 +125,7 @@ function harness(options = {}) {
     app, document, window, sound, SOUND_PREFERENCE_KEY, SOUND_VOLUME_KEY,
     MUSIC_ENABLED_KEY, MUSIC_VOLUME_KEY, musicEnabled: true, musicVolume: DEFAULT_MUSIC_VOLUME,
     GAME_SETS, ORIGINAL_START_MODE, gameSetPreference: 'reference', gameStartPreference: ORIGINAL_START_MODE,
-    TOKEN_ORDERS, tokenOrderPreference: 'ordered',
+    TOKEN_ORDERS, tokenOrderPreference: 'ordered', tokenCountPreference: 10,
     escape: value => String(value),
     mode: options.mode ?? 'home', session: options.session ?? null,
     soundTestRequest: 0, soundTestTimer: null, soundTestCancel: null,

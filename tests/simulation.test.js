@@ -7,7 +7,7 @@ import { chooseAIMove } from '../src/ai.js';
 import { configurePlayers } from '../src/players.js';
 import { newSession, transmit, acceptReveal } from '../src/flow.js';
 import { createSeries, seriesGameId, recordSeriesResult } from '../src/series.js';
-import { OUTPUT_GATE, physicalAngleFor, GEOMETRY_VERSION, LEGACY_GEOMETRY_VERSION,
+import { OUTPUT_GATE, physicalAngleFor, GEOMETRY_VERSION, LEGACY_GEOMETRY_VERSION, baseGeometryVersion,
   MIRROR_GEOMETRY_VERSION, SUPPORTED_GEOMETRY_VERSIONS } from '../src/geometry.js';
 import { tokenTotal, tokenSeries, tokenNumber } from '../src/tokens.js';
 import { configureStartingPosition, configureGameSet, startingAnglesFor, ORIGINAL_START_MODE,
@@ -283,11 +283,11 @@ test('original-v1 simulations complete real games from one fixed pose with both 
 });
 
 test('original-v1 simulations reject incompatible profiles before callbacks or work', async () => {
-  for (const geometryVersion of SUPPORTED_GEOMETRY_VERSIONS.filter(version => version !== 'ddc-v1.5')) {
+  for (const geometryVersion of SUPPORTED_GEOMETRY_VERSIONS.filter(version => baseGeometryVersion(version) !== GEOMETRY_VERSION)) {
     let started = false;
     await assert.rejects(runSimulation({ startMode: ORIGINAL_START_MODE, geometryVersion }, {
       onProgress() { started = true; },
-    }), geometryVersion === MIRROR_GEOMETRY_VERSION ? /Miroir 50/ : /ddc-v1\.5/);
+    }), baseGeometryVersion(geometryVersion) === MIRROR_GEOMETRY_VERSION ? /Miroir 50/ : /ddc-v1\.5/);
     assert.equal(started, false);
   }
 });
@@ -432,7 +432,7 @@ test('headless snapshots and fresh simulations preserve supported legacy geometr
 test('headless validation preserves each supported profile and its exact token supply', () => {
   for (const version of SUPPORTED_GEOMETRY_VERSIONS) {
     const value = session(0, ['easy', 'easy'], version);
-    if (version === MIRROR_GEOMETRY_VERSION) {
+    if (baseGeometryVersion(version) === MIRROR_GEOMETRY_VERSION) {
       configureGameSet(value.game, 'miroir-50', { mode: MIROIR50_START_MODE, seed: 42 });
     }
     const total = tokenTotal(version);
